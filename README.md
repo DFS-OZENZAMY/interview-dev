@@ -129,7 +129,9 @@ Si l'API est sur un autre domaine que le front :
 
 1. Lancez-le : `docker compose up -d redis`, puis vérifiez qu'il apparaît comme « healthy » avec `docker compose ps`. Si la commande échoue, regardez si un autre service n'a pas bloqué le démarrage (par exemple la construction de Piper : lancez alors `docker compose up -d redis` seul).
 2. Dans le `.env`, utilisez `REDIS_URL=redis://127.0.0.1:6379`. L'adresse `redis://redis:6379` ne fonctionne qu'entre conteneurs docker compose.
-3. Sous WSL, si Docker tourne côté Windows, vérifiez que l'intégration WSL de Docker Desktop est activée pour votre distribution.
+3. **Sous WSL avec Docker Desktop**, si `docker compose ps` montre les conteneurs « healthy » sur `127.0.0.1:PORT` mais que l'API reçoit `ETIMEDOUT` : les ports publiés sur `127.0.0.1` sont ouverts côté Windows et injoignables depuis WSL. Ajoutez `DOCKER_BIND_ADDRESS=0.0.0.0` dans le `.env`, puis recréez les conteneurs : `docker compose up -d redis piper`. Les ports deviennent alors visibles depuis votre réseau local : le pare-feu Windows les bloque normalement, mais n'utilisez pas ce réglage sur un serveur exposé.
+
+**`[voix] Piper ne répond pas`.** Même diagnostic que pour Redis (`docker compose ps`, `docker compose logs piper`, réglage WSL ci-dessus). En attendant, Lina parle avec la voix du navigateur, et l'API reprend Piper toute seule dès qu'il répond (vérification toutes les 15 secondes).
 
 En production (`NODE_ENV=production`), l'API refuse de démarrer sans Redis plutôt que de perdre les sessions en silence.
 

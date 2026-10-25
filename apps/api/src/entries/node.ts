@@ -9,7 +9,7 @@ import { serve } from "@hono/node-server";
 import { getConnInfo } from "@hono/node-server/conninfo";
 import type { Context } from "hono";
 import { ConfigError } from "../core/config";
-import { checkStore, createNodeApp, ipFromForwardedFor } from "../node/bootstrap";
+import { checkStore, checkVoice, createNodeApp, ipFromForwardedFor } from "../node/bootstrap";
 
 // Charge le .env le plus proche en remontant depuis le dossier courant et depuis ce fichier
 // (fonctionne en dev avec tsx comme depuis le build dist/). Ne remplace pas les variables déjà définies.
@@ -37,6 +37,7 @@ async function main() {
   if (store.kv !== built.kv) built = createNodeApp(getClientIp, store.kv);
   const { app, config } = built;
   hops = config.TRUST_PROXY_HOPS;
+  await checkVoice(built.voice, config);
 
   const server = serve({ fetch: app.fetch, port: config.PORT, hostname: "0.0.0.0" }, (info) => {
     console.log(`API prête sur http://localhost:${info.port}`);

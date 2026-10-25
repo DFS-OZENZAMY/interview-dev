@@ -27,7 +27,11 @@ export type Audio = { body: ReadableStream<Uint8Array>; contentType: string };
 export interface TTS {
   readonly name: "piper" | "elevenlabs" | "openai";
   readonly cacheKey: string;
+  /** Voix utilisées par langue, quand le fournisseur les expose (Piper). */
+  readonly voices?: Record<Locale, string>;
   synthesize(text: string, locale: Locale): Promise<Audio>;
+  /** Vérifie rapidement que le service répond (utilisé au démarrage). */
+  probe?(): Promise<boolean>;
 }
 
 export interface STT {
@@ -35,9 +39,30 @@ export interface STT {
   transcribe(audio: Blob, locale: Locale): Promise<string>;
 }
 
-export class VoiceProviderError extends Error {}
+export class VoiceProviderError extends Error {
+  /** true : le service ne répond pas du tout (adresse, réseau, conteneur arrêté). */
+  unreachable = false;
+}
 
 const TIMEOUT_MS = 20_000;
+
+/** Transforme une erreur réseau de fetch en message d'une ligne, sans trace. */
+function unreachable(provider: string, url: string, e: unknown) {
+  const cause = (e as { cause?: { code?: string } })?.cause?.code;
+  const reason = cause ?? (e instanceof Error && e.name === "TimeoutError" ? "délai dépassé" : e instanceof Error ? e.message : String(e));
+  const err = new VoiceProviderError(`${provider} injoignable à ${url} (${reason})`);
+  err.unreachable = true;
+  return err;
+}
+
+/** fetch qui convertit les erreurs réseau en VoiceProviderError. */
+async function providerFetch(provider: string, base: string, url: string, init: RequestInit) {
+  try {
+    return await fetch(url, init);
+  } catch (e) {
+    throw unreachable(provider, base, e);
+  }
+}
 
 async function upstreamError(provider: string, r: Response) {
   const detail = (await r.text().catch(() => "")).slice(0, 300);
@@ -58,7 +83,7 @@ export class ElevenLabsTTS implements TTS {
 
   async synthesize(text: string, locale: Locale): Promise<Audio> {
     const url = `${this.baseUrl.replace(/\/$/, "")}/v1/text-to-speech/${encodeURIComponent(this.voiceId)}/stream?output_format=mp3_44100_128`;
-    const r = await fetch(url, {
+    const r = await providerFetch("ElevenLabs", this.baseUrl, url, {
       method: "POST",
       signal: AbortSignal.timeout(TIMEOUT_MS),
       headers: { "xi-api-key": this.apiKey, "Content-Type": "application/json", Accept: "audio/mpeg" },
@@ -88,7 +113,7 @@ export class OpenAITTS implements TTS {
   }
 
   async synthesize(text: string, locale: Locale): Promise<Audio> {
-    const r = await fetch(`${this.baseUrl.replace(/\/$/, "")}/audio/speech`, {
+    const r = await providerFetch("OpenAI TTS", this.baseUrl, `${this.baseUrl.replace(/\/$/, "")}/audio/speech`, {
       method: "POST",
       signal: AbortSignal.timeout(TIMEOUT_MS),
       headers: { Authorization: `Bearer ${this.apiKey}`, "Content-Type": "application/json" },
@@ -122,7 +147,7 @@ export class PiperTTS implements TTS {
   readonly cacheKey: string;
   constructor(
     private baseUrl: string,
-    private voices: Record<Locale, string>,
+    readonly voices: Record<Locale, string>,
     private lengthScale?: number,
   ) {
     this.cacheKey = `piper:${voices.fr}:${voices.en}:${lengthScale ?? "defaut"}`;
@@ -132,8 +157,21 @@ export class PiperTTS implements TTS {
     return this.voices[locale];
   }
 
+  get url() {
+    return this.baseUrl;
+  }
+
+  async probe() {
+    try {
+      const r = await fetch(`${this.baseUrl.replace(/\/$/, "")}/voices`, { signal: AbortSignal.timeout(3_000) });
+      return r.ok;
+    } catch {
+      return false;
+    }
+  }
+
   async synthesize(text: string, locale: Locale): Promise<Audio> {
-    const r = await fetch(`${this.baseUrl.replace(/\/$/, "")}/synthesize`, {
+    const r = await providerFetch("Piper", this.baseUrl, `${this.baseUrl.replace(/\/$/, "")}/synthesize`, {
       method: "POST",
       signal: AbortSignal.timeout(TIMEOUT_MS),
       headers: { "Content-Type": "application/json" },
@@ -145,6 +183,57 @@ export class PiperTTS implements TTS {
     });
     if (!r.ok || !r.body) throw await upstreamError("Piper", r);
     return { body: r.body, contentType: "audio/wav" };
+  }
+}
+
+/**
+ * Enveloppe un fournisseur de voix : après une panne réseau, il est mis de côté 30 secondes.
+ * Pendant ce temps, l'API répond tout de suite par une erreur et le navigateur prend le relais
+ * avec sa propre voix, au lieu d'attendre un délai de connexion à chaque phrase.
+ */
+export class GuardedTTS implements TTS {
+  private downUntil = 0;
+  constructor(
+    readonly inner: TTS,
+    private pauseMs = 30_000,
+  ) {}
+
+  get name() {
+    return this.inner.name;
+  }
+  get cacheKey() {
+    return this.inner.cacheKey;
+  }
+  get voices() {
+    return this.inner.voices;
+  }
+  get isDown() {
+    return Date.now() < this.downUntil;
+  }
+
+  markDown() {
+    this.downUntil = Date.now() + this.pauseMs;
+  }
+  markUp() {
+    this.downUntil = 0;
+  }
+
+  probe() {
+    return this.inner.probe?.() ?? Promise.resolve(true);
+  }
+
+  async synthesize(text: string, locale: Locale) {
+    if (this.isDown) {
+      const err = new VoiceProviderError(`${this.inner.name} indisponible, voix du navigateur utilisée en attendant`);
+      err.unreachable = true;
+      throw err;
+    }
+    try {
+      return await this.inner.synthesize(text, locale);
+    } catch (e) {
+      if (e instanceof VoiceProviderError && e.unreachable) this.markDown();
+      throw e;
+    }
   }
 }
 
@@ -164,7 +253,7 @@ export class WhisperSTT implements STT {
     form.append("model", this.model);
     form.append("language", locale);
     form.append("response_format", "json");
-    const r = await fetch(`${this.baseUrl.replace(/\/$/, "")}/audio/transcriptions`, {
+    const r = await providerFetch(`Transcription ${this.name}`, this.baseUrl, `${this.baseUrl.replace(/\/$/, "")}/audio/transcriptions`, {
       method: "POST",
       signal: AbortSignal.timeout(30_000),
       headers: { Authorization: `Bearer ${this.apiKey}` },
@@ -177,7 +266,7 @@ export class WhisperSTT implements STT {
 }
 
 export type VoiceSetup = {
-  tts: TTS | null;
+  tts: GuardedTTS | null;
   /** Ce que le front doit faire : lire l'audio du serveur, utiliser la voix du navigateur, ou rester muet. */
   ttsMode: "server" | "browser" | "none";
   stt: STT | null;
@@ -215,7 +304,7 @@ export function selectVoice(c: Config): VoiceSetup {
     stt = new WhisperSTT("groq", c.GROQ_API_KEY, c.GROQ_BASE_URL, c.STT_MODEL ?? "whisper-large-v3-turbo");
   }
 
-  return { tts, ttsMode, stt, sttMode: stt ? "server" : "browser" };
+  return { tts: tts ? new GuardedTTS(tts) : null, ttsMode, stt, sttMode: stt ? "server" : "browser" };
 }
 
 // ---- Cache des phrases fixes (intro, conclusion) : on ne les paie qu'une fois ----

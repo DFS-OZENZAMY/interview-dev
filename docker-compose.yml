@@ -1,3 +1,6 @@
+# Ports publiés sur 127.0.0.1 par défaut (non visibles depuis le réseau).
+# Sous WSL avec Docker Desktop, ces ports peuvent être injoignables depuis WSL :
+# ajoutez alors DOCKER_BIND_ADDRESS=0.0.0.0 dans le .env.
 services:
   # API complète en conteneur : `docker compose up -d --build`
   api:
@@ -31,7 +34,7 @@ services:
     environment:
       PIPER_DEFAULT_VOICE: ${PIPER_VOICE_FR:-fr_FR-siwis-medium}
     ports:
-      - "127.0.0.1:5000:5000"
+      - "${DOCKER_BIND_ADDRESS:-127.0.0.1}:5000:5000"
     volumes:
       # Voix PiperHub ajoutées à la main (.onnx + .onnx.json)
       - ./apps/piper/voices:/voices/custom:ro
@@ -50,7 +53,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev}
       POSTGRES_DB: ${POSTGRES_DB:-interview}
     ports:
-      - "127.0.0.1:5432:5432"
+      - "${DOCKER_BIND_ADDRESS:-127.0.0.1}:5432:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:
@@ -64,7 +67,7 @@ services:
     container_name: interview-redis
     restart: unless-stopped
     ports:
-      - "127.0.0.1:6379:6379"
+      - "${DOCKER_BIND_ADDRESS:-127.0.0.1}:6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:

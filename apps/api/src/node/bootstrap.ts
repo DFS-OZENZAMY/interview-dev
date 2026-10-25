@@ -2,6 +2,7 @@ import type { Context } from "hono";
 import { createApp, type AppDeps } from "../core/app";
 import { loadConfig, type Config } from "../core/config";
 import { MemoryKV, selectKV, type KV } from "../core/kv";
+import { selectVoice, type VoiceSetup } from "../core/voice";
 import { IoredisKV, maskRedisUrl } from "./redis-kv";
 
 /**
@@ -11,8 +12,13 @@ import { IoredisKV, maskRedisUrl } from "./redis-kv";
 export function createNodeApp(getClientIp: AppDeps["getClientIp"], kvOverride?: KV) {
   const config = loadConfig(process.env);
   const kv = kvOverride ?? selectKV(config, (url) => new IoredisKV(url));
-  return { app: createApp({ config, kv, getClientIp }), config, kv };
+  const voice = selectVoice(config);
+  return { app: createApp({ config, kv, getClientIp, voice }), config, kv, voice };
 }
+
+const WSL_HINT =
+  "  - Sous WSL avec Docker Desktop, si « docker compose ps » affiche 127.0.0.1:PORT et que rien ne répond :\n" +
+  "    ajoutez DOCKER_BIND_ADDRESS=0.0.0.0 dans le .env, puis : docker compose up -d redis piper";
 
 /**
  * Vérifie au démarrage que Redis répond. En local, bascule sur la mémoire avec une explication ;
@@ -30,12 +36,41 @@ export async function checkStore(kv: KV, config: Config): Promise<{ kv: KV; fata
     "  - En local, préférez REDIS_URL=redis://127.0.0.1:6379 dans le .env.",
     "    « redis://redis:6379 » ne fonctionne qu'à l'intérieur de docker compose.",
     "  - Pour développer sans Redis : supprimez REDIS_URL du .env (sessions en mémoire).",
+    WSL_HINT,
   ].join("\n");
 
   kv.close();
   if (process.env.NODE_ENV === "production" || config.STORE === "redis") return { kv, fatal: help };
   console.warn(`[interview] ${help}\n[interview] En attendant, l'API continue avec un stockage EN MÉMOIRE (sessions perdues au redémarrage).`);
   return { kv: new MemoryKV() };
+}
+
+/**
+ * Vérifie au démarrage que le service de voix répond (Piper). Sinon : message clair,
+ * voix du navigateur en attendant, et nouvelle vérification toutes les 15 secondes.
+ */
+export async function checkVoice(voice: VoiceSetup, config: Config) {
+  const tts = voice.tts;
+  if (!tts?.inner.probe) return;
+  if (await tts.probe()) return;
+  tts.markDown();
+  console.warn(
+    [
+      `[voix] ${tts.name === "piper" ? "Piper" : tts.name} ne répond pas à l'adresse ${config.PIPER_URL}.`,
+      "  - Piper tourne-t-il ? Lancez : docker compose up -d piper   (puis : docker compose ps, docker compose logs piper)",
+      "  - Au premier lancement, la construction de l'image télécharge les voix : patientez qu'il soit « healthy ».",
+      WSL_HINT,
+      "[voix] En attendant, Lina utilise la voix du navigateur. L'API réessaie toutes les 15 secondes.",
+    ].join("\n"),
+  );
+  const timer = setInterval(async () => {
+    if (await tts.probe()) {
+      tts.markUp();
+      clearInterval(timer);
+      console.log("[voix] Piper répond de nouveau : Lina retrouve sa voix.");
+    } else tts.markDown();
+  }, 15_000);
+  timer.unref();
 }
 
 /**

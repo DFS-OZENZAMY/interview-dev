@@ -7,7 +7,7 @@ import { InterviewService, SessionDoneError } from "./interview";
 import type { KV } from "./kv";
 import { GroqLLM, type LLM } from "./llm";
 import { SessionBusyError, SessionNotFoundError, SessionStore } from "./sessions";
-import { PHRASES, PiperTTS, selectVoice, synthesizeCached, VoiceProviderError, type Audio, type CachedAudio, type Locale, type VoiceSetup } from "./voice";
+import { PHRASES, selectVoice, synthesizeCached, VoiceProviderError, type Audio, type CachedAudio, type Locale, type VoiceSetup } from "./voice";
 
 /** Ce que chaque plateforme fournit à l'application. */
 export type AppDeps = {
@@ -115,7 +115,9 @@ export function createApp({ config, kv, getClientIp, llm, voice }: AppDeps) {
         mode: voiceSetup.ttsMode,
         provider: voiceSetup.tts?.name ?? null,
         // Nom des voix Piper utilisées (affiché dans la préparation).
-        voices: voiceSetup.tts instanceof PiperTTS ? { fr: voiceSetup.tts.voiceFor("fr"), en: voiceSetup.tts.voiceFor("en") } : null,
+        voices: voiceSetup.tts?.voices ?? null,
+        // Fournisseur momentanément injoignable : le front utilise la voix du navigateur.
+        available: voiceSetup.tts ? !voiceSetup.tts.isDown : null,
       },
       stt: { mode: voiceSetup.sttMode, provider: voiceSetup.stt?.name ?? null },
       phrases: PHRASES,
@@ -208,8 +210,8 @@ export function createApp({ config, kv, getClientIp, llm, voice }: AppDeps) {
       return c.json({ error: "Le stockage des sessions est momentanément indisponible, réessayez dans un instant." }, 503);
     }
     if (err instanceof VoiceProviderError) {
-      console.error(err.message);
-      return c.json({ error: "Le service vocal est momentanément indisponible" }, 502);
+      console.error(`[voix] ${err.message}`);
+      return c.json({ error: "Le service vocal est momentanément indisponible" }, err.unreachable ? 503 : 502);
     }
     console.error(err);
     return c.json({ error: "Erreur interne, réessayez plus tard" }, 500);

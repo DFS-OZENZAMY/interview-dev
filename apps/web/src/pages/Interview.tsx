@@ -101,7 +101,8 @@ export default function Interview() {
 
   const locale = config?.locale ?? "fr";
   const v = voice ?? FALLBACK_VOICE;
-  const serverTts = v.tts.mode === "server";
+  // Fournisseur de voix momentanément injoignable (ex. Piper arrêté) : voix du navigateur directement.
+  const serverTts = v.tts.mode === "server" && v.tts.available !== false;
   // Sans micro utilisable, aucune écoute possible : ni l'enregistrement, ni la dictée du navigateur.
   const listenMode: "server" | "browser" | null =
     micStatus !== "granted" ? null : v.stt.mode === "server" ? "server" : SpeechRecognitionImpl ? "browser" : null;
@@ -170,7 +171,7 @@ export default function Interview() {
         await new Promise((r) => setTimeout(r, phrases.length * 1500));
       } else {
         const r = await speaker.speak({
-          url: cfg.tts.mode === "server" ? api.phraseUrl("intro", locale) : null,
+          url: cfg.tts.mode === "server" && cfg.tts.available !== false ? api.phraseUrl("intro", locale) : null,
           text: phrases.join(" "),
           locale,
           onStart: reveal,
