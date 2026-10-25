@@ -1,10 +1,11 @@
 {
   "name": "api",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "API d'entretien simulé (Hono + Groq)",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [],
   "author": "",
@@ -13,7 +14,9 @@
   "dependencies": {
     "@hono/node-server": "^2.1.5",
     "dotenv": "^18.0.9",
-    "hono": "^4.13.13"
+    "hono": "^4.13.13",
+    "ioredis": "^5.11.1",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
