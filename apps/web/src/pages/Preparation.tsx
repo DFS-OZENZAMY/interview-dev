@@ -6,6 +6,7 @@ import { CandidateShell } from "../components/CandidateShell";
 import { api } from "../lib/api";
 import { DURATIONS, OBJECTIVES, QUESTIONS_BY_DURATION, TYPES, cn } from "../lib/labels";
 import { configStore, profileStore } from "../lib/storage";
+import { micIssueMessage } from "../lib/voice";
 import { listener, speaker } from "../lib/voice-instance";
 import type { Duration, InterviewType, Locale, Objective, VoiceConfig } from "../lib/types";
 
@@ -63,7 +64,7 @@ export default function Preparation() {
     const micOk = await listener.prepare();
     configStore.set({ type, poste: poste.trim(), description: description.trim(), locale, objectifs, experience: profile!.experience, duree });
     if (!micOk) {
-      setMicNotice("Le micro n’est pas autorisé : vous pourrez répondre par écrit, ou l’autoriser dans les réglages du navigateur.");
+      setMicNotice(`${micIssueMessage(listener.issue)} Vous pourrez répondre par écrit.`);
       setTimeout(() => navigate("/entretien"), 2200);
       return;
     }

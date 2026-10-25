@@ -240,7 +240,41 @@ const SILENCE_MS = 1900;
 const MIN_SPEECH_MS = 600;
 const MAX_TURN_MS = 3 * 60_000;
 
+export type MicIssue = "unsupported" | "no-device" | "denied" | "busy" | "error";
+
+export function micIssueFrom(e: unknown): MicIssue {
+  switch ((e as { name?: string } | null)?.name) {
+    case "NotFoundError":
+      return "no-device";
+    case "NotAllowedError":
+    case "SecurityError":
+      return "denied";
+    case "NotReadableError":
+    case "AbortError":
+      return "busy";
+    default:
+      return "error";
+  }
+}
+
+export function micIssueMessage(issue: MicIssue | null): string {
+  switch (issue) {
+    case "unsupported":
+      return "Le micro n’est pas disponible sur cette page (navigateur ou connexion non sécurisée).";
+    case "no-device":
+      return "Aucun micro n’a été détecté sur cet appareil.";
+    case "denied":
+      return "L’accès au micro est refusé.";
+    case "busy":
+      return "Le micro est utilisé par une autre application.";
+    default:
+      return "Le micro est inaccessible.";
+  }
+}
+
 export class Listener {
+  /** Dernier problème rencontré en demandant le micro (null si tout va bien). */
+  issue: MicIssue | null = null;
   private stream: MediaStream | null = null;
   private analyser: AnalyserNode | null = null;
   private buf: Float32Array<ArrayBuffer> | null = null;
@@ -254,6 +288,10 @@ export class Listener {
   /** Demande l'accès au micro une seule fois pour toute la séance. */
   async prepare(): Promise<boolean> {
     if (this.stream) return true;
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      this.issue = "unsupported";
+      return false;
+    }
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
@@ -267,8 +305,10 @@ export class Listener {
         src.connect(this.analyser); // pas de sortie : on n'entend pas son propre micro
         this.buf = new Float32Array(this.analyser.fftSize);
       }
+      this.issue = null;
       return true;
-    } catch {
+    } catch (e) {
+      this.issue = micIssueFrom(e);
       return false;
     }
   }

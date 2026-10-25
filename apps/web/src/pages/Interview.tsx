@@ -7,7 +7,7 @@ import { AnalysisLoader } from "../components/AnalysisLoader";
 import { ApiError, api, type Turn } from "../lib/api";
 import { TYPES, cn } from "../lib/labels";
 import { configStore, historyStore } from "../lib/storage";
-import { SpeechRecognitionImpl } from "../lib/voice";
+import { SpeechRecognitionImpl, micIssueMessage, type MicIssue } from "../lib/voice";
 import { listener, speaker } from "../lib/voice-instance";
 import type { VoiceConfig } from "../lib/types";
 
@@ -68,6 +68,7 @@ export default function Interview() {
   const [elapsed, setElapsed] = useState(0);
   const [stopOpen, setStopOpen] = useState(false);
   const [micReady, setMicReady] = useState(listener.ready);
+  const [micIssue, setMicIssue] = useState<MicIssue | null>(listener.issue);
 
   const alive = useRef(true);
   const turn = useRef(0);
@@ -92,8 +93,14 @@ export default function Interview() {
   const locale = config?.locale ?? "fr";
   const v = voice ?? FALLBACK_VOICE;
   const serverTts = v.tts.mode === "server";
-  const listenMode: "server" | "browser" | null =
-    v.stt.mode === "server" && micReady ? "server" : SpeechRecognitionImpl ? "browser" : null;
+  // Sans micro (absent, refusé, occupé), l'écoute vocale est désactivée : le candidat répond par écrit.
+  const listenMode: "server" | "browser" | null = micIssue
+    ? null
+    : v.stt.mode === "server" && micReady
+      ? "server"
+      : SpeechRecognitionImpl
+        ? "browser"
+        : null;
 
   const orbLevel = useCallback(() => {
     const l = liveRef.current;
@@ -160,7 +167,19 @@ export default function Interview() {
     // L'entretien est créé pendant l'intro : la première question est prête à la fin du compte à rebours.
     startPromise.current = api.start(config);
     startPromise.current.catch(() => {});
-    if (!listener.ready) void listener.prepare().then((ok) => alive.current && setMicReady(ok));
+    if (!listener.ready) {
+      void listener.prepare().then((ok) => {
+        if (!alive.current) return;
+        setMicReady(ok);
+        if (!ok) {
+          // Pas de micro utilisable : on bascule tout de suite en saisie écrite.
+          setMicIssue(listener.issue);
+          prefs.current.textMode = true;
+          setTextMode(true);
+          setNotice(`${micIssueMessage(listener.issue)} Vous pouvez répondre par écrit.`);
+        }
+      });
+    }
     api
       .voiceConfig()
       .catch(() => FALLBACK_VOICE)
@@ -240,7 +259,7 @@ export default function Interview() {
     if (prefs.current.textMode) return;
     if (!listenMode) {
       setTextMode(true);
-      setNotice("La dictée vocale n’est pas disponible dans ce navigateur : répondez par écrit.");
+      setNotice(micIssue ? `${micIssueMessage(micIssue)} Répondez par écrit.` : "La dictée vocale n’est pas disponible dans ce navigateur : répondez par écrit.");
       return;
     }
     const myTurn = turn.current;
@@ -379,6 +398,25 @@ export default function Interview() {
     listener.cancel();
     setTextMode(true);
     prefs.current.textMode = true;
+  }
+
+  async function retryMic() {
+    const ok = await listener.prepare();
+    if (!alive.current) return;
+    setMicReady(ok);
+    setMicIssue(ok ? null : listener.issue);
+    if (!ok) {
+      setNotice(`${micIssueMessage(listener.issue)} Vous pouvez répondre par écrit.`);
+      return;
+    }
+    setNotice("");
+    setTextMode(false);
+    prefs.current.textMode = false;
+    turn.current++;
+    // Laisse React recalculer listenMode avant de relancer l'écoute.
+    setTimeout(() => {
+      if (alive.current) flow.current.listen();
+    }, 50);
   }
 
   function switchToVoice() {
@@ -580,6 +618,10 @@ export default function Interview() {
                       {listenMode ? (
                         <button type="button" onClick={switchToVoice} className="glass-dark inline-flex min-h-12 items-center gap-2 rounded-2xl px-5 text-sm font-semibold">
                           <Mic size={17} /> Répondre à l’oral
+                        </button>
+                      ) : micIssue && micIssue !== "no-device" && micIssue !== "unsupported" ? (
+                        <button type="button" onClick={() => void retryMic()} className="glass-dark inline-flex min-h-12 items-center gap-2 rounded-2xl px-5 text-sm font-semibold">
+                          <Mic size={17} /> Réessayer le micro
                         </button>
                       ) : <span />}
                       <button type="button" onClick={() => void submit(answer)} disabled={!answer.trim()} className="btn-gradient inline-flex min-h-12 items-center gap-2 rounded-2xl px-6 text-sm font-bold">
