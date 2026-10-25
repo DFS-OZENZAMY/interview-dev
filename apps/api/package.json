@@ -3,8 +3,12 @@
   "version": "1.0.0",
   "description": "API d'entretien simulé (Hono + Groq)",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/entries/node.ts",
+    "build": "esbuild --bundle --platform=node --target=node20 --format=cjs --log-level=warning src/entries/node.ts --outfile=dist/node.js",
+    "start": "node dist/node.js",
+    "build:lambda": "esbuild --bundle --platform=node --target=node20 --format=cjs --log-level=warning src/entries/lambda.ts --outfile=dist/lambda/index.js",
+    "dev:worker": "npx wrangler dev",
+    "deploy:worker": "npx wrangler deploy",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [],
@@ -20,7 +24,12 @@
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
+    "esbuild": "~0.25.12",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
-  }
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@12.15.0"
 }

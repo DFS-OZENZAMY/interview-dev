@@ -1,4 +1,20 @@
 services:
+  # API complète en conteneur : `docker compose up -d --build`
+  api:
+    build: ./apps/api
+    container_name: interview-api
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "${API_PORT:-3000}:3000"
+    depends_on:
+      redis:
+        condition: service_healthy
+
   db:
     image: postgres:16
     container_name: interview-db

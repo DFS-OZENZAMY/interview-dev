@@ -1,0 +1,9 @@
+# Cloudflare Workers : `pnpm dev:worker` en local, `pnpm deploy:worker` pour publier.
+# Secrets à définir : npx wrangler secret put GROQ_API_KEY (idem UPSTASH_REDIS_REST_TOKEN, API_KEY)
+name = "interview-api"
+main = "src/entries/worker.ts"
+compatibility_date = "2025-09-01"
+
+[vars]
+TOTAL_QUESTIONS = "10"
+# UPSTASH_REDIS_REST_URL = "https://xxx.upstash.io"

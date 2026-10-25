@@ -1,0 +1,8 @@
+# Site Netlify avec "Base directory" = apps/api
+[build]
+  command = "echo 'Pas de build front'"
+  publish = "public"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"

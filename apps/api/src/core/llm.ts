@@ -5,15 +5,16 @@ export interface LLM {
   chat(messages: Msg[], opts?: ChatOpts): Promise<string>;
 }
 
-const TIMEOUT_MS = 30_000;
 const MAX_ATTEMPTS = 3;
-
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Client pour toute API compatible OpenAI (Groq par défaut). Utilise uniquement fetch. */
 export class GroqLLM implements LLM {
   constructor(
     private apiKey: string,
-    private model = "openai/gpt-oss-120b",
+    private model: string,
+    private baseUrl: string,
+    private timeoutMs: number,
   ) {}
 
   async chat(messages: Msg[], opts: ChatOpts = {}): Promise<string> {
@@ -21,9 +22,9 @@ export class GroqLLM implements LLM {
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       try {
-        const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        const r = await fetch(`${this.baseUrl.replace(/\/$/, "")}/chat/completions`, {
           method: "POST",
-          signal: AbortSignal.timeout(TIMEOUT_MS),
+          signal: AbortSignal.timeout(this.timeoutMs),
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${this.apiKey}`,
@@ -39,17 +40,19 @@ export class GroqLLM implements LLM {
 
         // 429 et 5xx : erreurs temporaires, on réessaie avec un délai croissant.
         if (r.status === 429 || r.status >= 500) {
-          lastError = new Error(`Groq ${r.status}: ${await r.text()}`);
-          const retryAfter = Number(r.headers.get("retry-after"));
-          await sleep(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 1000 * attempt);
+          lastError = new Error(`LLM ${r.status}: ${await r.text()}`);
+          if (attempt < MAX_ATTEMPTS) {
+            const retryAfter = Number(r.headers.get("retry-after"));
+            await sleep(Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter, 10) * 1000 : 1000 * attempt);
+          }
           continue;
         }
-        if (!r.ok) throw new Error(`Groq ${r.status}: ${await r.text()}`);
+        if (!r.ok) throw new Error(`LLM ${r.status}: ${await r.text()}`);
 
         const data: any = await r.json();
         const content = data?.choices?.[0]?.message?.content;
         if (typeof content !== "string" || !content.trim()) {
-          throw new Error("Réponse Groq vide ou inattendue");
+          throw new Error("Réponse du LLM vide ou inattendue");
         }
         return content;
       } catch (e) {
