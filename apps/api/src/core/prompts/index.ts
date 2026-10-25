@@ -15,6 +15,7 @@ export function linaSystemPrompt(s: Session, n: number): string {
     objectifs: objectifsLabel(s),
     fiche_de_poste: s.description ?? "",
     premiere_question: n === 1,
+    derniere_question: n === s.total,
     question: n,
     total: s.total,
   });

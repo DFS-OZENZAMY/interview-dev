@@ -112,6 +112,36 @@ test("Lina FR : pas de markdown ni de liste dans ses messages (lus à voix haute
   assert.match(linaSystemPrompt(session(), 2), /lus à voix haute/);
 });
 
+test("Lina : ton de vraie recruteuse (écoute, relance, rassure, reste honnête)", () => {
+  const fr = linaSystemPrompt(session(), 2);
+  assert.match(fr, /chaleureuse/);
+  assert.match(fr, /courte réaction/);
+  assert.match(fr, /détail précis/);
+  assert.match(fr, /creuse un point précis/);
+  assert.match(fr, /rassure-le/);
+  assert.match(fr, /Ne pose jamais une question déjà posée/);
+  assert.match(fr, /Ne prétends jamais être humaine/);
+  assert.match(fr, /30 à 60 mots/);
+  const en = linaSystemPrompt(session({ locale: "en" }), 2);
+  assert.match(en, /reaction/);
+  assert.match(en, /Never claim to be human/);
+  assert.match(en, /30 to 60 words/);
+});
+
+test("première question : accueil chaleureux ; dernière question : note positive", () => {
+  const first = linaSystemPrompt(session(), 1);
+  assert.match(first, /accueille le candidat chaleureusement/);
+  assert.doesNotMatch(first, /C'est la dernière question/);
+  const last = linaSystemPrompt(session({ total: 10 }), 10);
+  assert.match(last, /C'est la dernière question/);
+  assert.match(last, /question 10 sur 10/);
+  assert.doesNotMatch(last, /C'est la première question/);
+  const middle = linaSystemPrompt(session(), 5);
+  assert.doesNotMatch(middle, /C'est la première question|C'est la dernière question/);
+  const enLast = linaSystemPrompt(session({ locale: "en", total: 3 }), 3);
+  assert.match(enLast, /This is the last question/);
+});
+
 // ---------- évaluateur ----------
 
 test("évaluateur : consigne d'interruption, objectifs par défaut, langue", () => {
