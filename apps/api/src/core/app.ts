@@ -202,6 +202,11 @@ export function createApp({ config, kv, getClientIp, llm, voice }: AppDeps) {
     if (err instanceof SessionNotFoundError) return c.json({ error: "Session introuvable ou expirée" }, 404);
     if (err instanceof SessionBusyError) return c.json({ error: "Une réponse est déjà en cours de traitement" }, 409);
     if (err instanceof SessionDoneError) return c.json({ error: "L'entretien est déjà terminé" }, 409);
+    // Redis tombé en cours de route : erreur claire, sans trace répétée à chaque requête.
+    if (err.name === "MaxRetriesPerRequestError" || /ECONNREFUSED|ETIMEDOUT|Connection is closed/.test(err.message)) {
+      console.error(`[stockage] indisponible : ${err.message}`);
+      return c.json({ error: "Le stockage des sessions est momentanément indisponible, réessayez dans un instant." }, 503);
+    }
     if (err instanceof VoiceProviderError) {
       console.error(err.message);
       return c.json({ error: "Le service vocal est momentanément indisponible" }, 502);

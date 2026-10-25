@@ -123,6 +123,18 @@ Si l'API est sur un autre domaine que le front :
 - côté front, à la construction : `VITE_API_URL=https://api.mon-domaine.com` ;
 - côté API : `CORS_ORIGINS=https://mon-front.com`.
 
+## Dépannage
+
+**`[redis] … injoignable (ETIMEDOUT)` ou `(ECONNREFUSED)` au démarrage.** L'API n'arrive pas à joindre Redis. En local, elle l'explique et continue avec un stockage en mémoire, ce qui suffit pour développer. Pour utiliser Redis :
+
+1. Lancez-le : `docker compose up -d redis`, puis vérifiez qu'il apparaît comme « healthy » avec `docker compose ps`. Si la commande échoue, regardez si un autre service n'a pas bloqué le démarrage (par exemple la construction de Piper : lancez alors `docker compose up -d redis` seul).
+2. Dans le `.env`, utilisez `REDIS_URL=redis://127.0.0.1:6379`. L'adresse `redis://redis:6379` ne fonctionne qu'entre conteneurs docker compose.
+3. Sous WSL, si Docker tourne côté Windows, vérifiez que l'intégration WSL de Docker Desktop est activée pour votre distribution.
+
+En production (`NODE_ENV=production`), l'API refuse de démarrer sans Redis plutôt que de perdre les sessions en silence.
+
+**L'API refuse de démarrer avec `TTS_PROVIDER=openai nécessite OPENAI_API_KEY`.** Votre `.env` vient d'une ancienne version : remplacez cette ligne par `TTS_PROVIDER=piper` (ou supprimez-la).
+
 ## Endpoints de l'API
 
 `GET /health` : état de l'API et du stockage.

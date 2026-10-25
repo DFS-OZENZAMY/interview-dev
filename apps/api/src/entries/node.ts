@@ -9,7 +9,7 @@ import { serve } from "@hono/node-server";
 import { getConnInfo } from "@hono/node-server/conninfo";
 import type { Context } from "hono";
 import { ConfigError } from "../core/config";
-import { createNodeApp, ipFromForwardedFor } from "../node/bootstrap";
+import { checkStore, createNodeApp, ipFromForwardedFor } from "../node/bootstrap";
 
 // Charge le .env le plus proche en remontant depuis le dossier courant et depuis ce fichier
 // (fonctionne en dev avec tsx comme depuis le build dist/). Ne remplace pas les variables déjà définies.
@@ -25,12 +25,17 @@ function loadDotenv() {
 }
 loadDotenv();
 
-try {
+async function main() {
   let hops = 0;
   const getClientIp = (c: Context) =>
     (hops > 0 ? ipFromForwardedFor(c, hops) : undefined) ?? getConnInfo(c).remote.address;
 
-  const { app, config } = createNodeApp(getClientIp);
+  let built = createNodeApp(getClientIp);
+  // Redis injoignable : message clair, puis mémoire en local ou arrêt en production.
+  const store = await checkStore(built.kv, built.config);
+  if (store.fatal) throw new ConfigError(store.fatal);
+  if (store.kv !== built.kv) built = createNodeApp(getClientIp, store.kv);
+  const { app, config } = built;
   hops = config.TRUST_PROXY_HOPS;
 
   const server = serve({ fetch: app.fetch, port: config.PORT, hostname: "0.0.0.0" }, (info) => {
@@ -44,7 +49,9 @@ try {
       setTimeout(() => process.exit(0), 10_000).unref();
     });
   }
-} catch (e) {
+}
+
+main().catch((e) => {
   console.error(e instanceof ConfigError ? e.message : e);
   process.exit(1);
-}
+});
