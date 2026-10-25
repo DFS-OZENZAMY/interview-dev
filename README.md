@@ -51,7 +51,10 @@ Points d'attention :
 
 ```
 apps/api/
+  prompts/        instructions de Lina et de l'évaluateur, en Markdown (voir prompts/README.md)
+  scripts/        build-prompts.mjs : convertit prompts/*.md en code TypeScript typé
   src/core/       logique portable (Hono, zod, fetch) : aucun accès Node
+  src/core/prompts/  moteur de gabarits, tests et fichier généré
   src/node/       Redis TCP (ioredis) et démarrage pour les runtimes Node
   src/entries/    node.ts (serveur), lambda.ts, worker.ts
   src/index.ts    point d'entrée Vercel

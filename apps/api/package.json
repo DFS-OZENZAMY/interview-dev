@@ -3,13 +3,16 @@
   "version": "1.0.0",
   "description": "API d'entretien simulé (Hono + Groq)",
   "scripts": {
-    "dev": "tsx watch src/entries/node.ts",
-    "build": "esbuild --bundle --platform=node --target=node20 --format=cjs --log-level=warning src/entries/node.ts --outfile=dist/node.js",
+    "prompts": "node scripts/build-prompts.mjs",
+    "prompts:check": "node scripts/build-prompts.mjs --check",
+    "dev": "node scripts/build-prompts.mjs && tsx watch src/entries/node.ts",
+    "build": "node scripts/build-prompts.mjs --check && esbuild --bundle --platform=node --target=node20 --format=cjs --log-level=warning src/entries/node.ts --outfile=dist/node.js",
     "start": "node dist/node.js",
-    "build:lambda": "esbuild --bundle --platform=node --target=node20 --format=cjs --log-level=warning src/entries/lambda.ts --outfile=dist/lambda/index.js",
+    "build:lambda": "node scripts/build-prompts.mjs --check && esbuild --bundle --platform=node --target=node20 --format=cjs --log-level=warning src/entries/lambda.ts --outfile=dist/lambda/index.js",
     "dev:worker": "npx wrangler dev",
     "deploy:worker": "npx wrangler deploy",
-    "typecheck": "tsc --noEmit"
+    "test": "tsx --test src/core/prompts/prompts.test.ts",
+    "typecheck": "node scripts/build-prompts.mjs --check && tsc --noEmit"
   },
   "keywords": [],
   "author": "",
