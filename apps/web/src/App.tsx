@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 import Landing from "./pages/Landing";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 
 // Le simulateur (WebGL) et le bilan ne sont chargés que lorsqu'on en a besoin.
 const Profile = lazy(() => import("./pages/Profile"));
@@ -12,6 +13,7 @@ const Report = lazy(() => import("./pages/Report"));
 export default function App() {
   return (
     <BrowserRouter>
+      <ErrorBoundary>
       <Suspense fallback={<div className="min-h-dvh bg-[#F8F9FF]" />}>
         <Routes>
           <Route path="/" element={<Landing />} />
@@ -23,6 +25,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>
+      </ErrorBoundary>
     </BrowserRouter>
   );
 }

@@ -2,7 +2,16 @@
 # Sous WSL avec Docker Desktop, ces ports peuvent être injoignables depuis WSL :
 # ajoutez alors DOCKER_BIND_ADDRESS=0.0.0.0 dans le .env.
 services:
-  # API complète en conteneur : `docker compose up -d --build`
+  # Plateforme complète : `docker compose up -d --build`, puis http://localhost:8080
+  web:
+    build: ./apps/web
+    container_name: interview-web
+    restart: unless-stopped
+    ports:
+      - "${DOCKER_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-8080}:8080"
+    depends_on:
+      - api
+
   api:
     build: ./apps/api
     container_name: interview-api
@@ -12,6 +21,8 @@ services:
         required: false
     environment:
       REDIS_URL: redis://redis:6379
+      # Derrière le Nginx du front : l'IP du candidat est lue dans X-Forwarded-For
+      TRUST_PROXY_HOPS: 1
       # Voix de Lina par Piper (gratuit). Une clé ElevenLabs ou OpenAI dans .env reste prioritaire en mode auto.
       PIPER_URL: http://piper:5000
     ports:

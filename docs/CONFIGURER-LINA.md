@@ -133,7 +133,7 @@ Variables dans `.env` (la référence complète est `apps/api/src/core/config.ts
 
 À savoir dans `src/core/llm.ts` :
 - `reasoning_effort: "low"` est envoyé à chaque appel. Il convient aux modèles de raisonnement. Si votre nouveau modèle ou fournisseur le refuse, supprimez cette ligne.
-- `max_tokens` vaut 800 par défaut (2000 pour le rapport). Avec un modèle de raisonnement, ces tokens incluent la réflexion : ne pas descendre trop bas, sinon la réponse peut sortir vide.
+- `max_tokens` vaut 800 par défaut (4000 pour le rapport, qui contient un retour par question). Avec un modèle de raisonnement, ces tokens incluent la réflexion : ne pas descendre trop bas, sinon la réponse peut sortir vide.
 - L'appel est retenté jusqu'à 3 fois en cas d'erreur 429 ou 5xx.
 
 ## 5. La voix de Lina (synthèse vocale)
@@ -244,8 +244,10 @@ Pour ne rien oublier, cherchez toutes les occurrences : `grep -rn '"en"' apps/ap
 ### 9.1 Comment il est produit
 
 `evaluateur.md` donne les consignes, `evaluateur-entree.md` encadre le transcript, et `reportSchema` (`interview.ts`) valide le JSON renvoyé :
-5 notes de 0 à 10 (`clarte`, `pertinence`, `exemples_concrets`, `structure`, `motivation`), `points_forts`, `points_faibles`, `conseils`, `resume`.
-Le `score_global` est calculé par le code (moyenne des notes × 10), jamais par le modèle.
+5 notes de 0 à 10 (`clarte`, `pertinence`, `exemples_concrets`, `structure`, `motivation`), `points_forts`, `points_faibles`, `conseils`, `resume`,
+et `par_question` : pour chaque question, `question` (résumée), `ce_qui_va`, `a_ameliorer` et `exemple` (une formulation plus percutante, sans inventer de faits).
+`par_question` est facultatif dans le schéma : si le modèle l'omet, le bilan reste valide et le front n'affiche simplement pas cette section.
+Le `score_global` est calculé par le code (moyenne des notes × 10), jamais par le modèle. Les `echanges` (questions de Lina et réponses du candidat) sont aussi ajoutés par le code, à partir de la session : le modèle ne peut pas les déformer.
 
 ### 9.2 Modifier le ton ou le barème
 

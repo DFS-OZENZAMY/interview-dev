@@ -39,7 +39,13 @@ export type Report = {
   conseils: string[];
   resume: string;
   score_global: number;
+  /** Retour détaillé par question (absent des bilans produits avant cette version). */
+  par_question?: QuestionFeedback[];
+  /** Questions de Lina et réponses du candidat, dans l'ordre. */
+  echanges?: { question: string; reponse: string | null }[];
 };
+
+export type QuestionFeedback = { question: string; ce_qui_va: string; a_ameliorer: string; exemple: string };
 
 export type ReportResult = Report | { error: string } | null;
 

@@ -3,6 +3,7 @@ import { motion, useReducedMotion } from "motion/react";
 import { ArrowRight, BrainCircuit, Check, CirclePlay, GraduationCap, LayoutDashboard, MessageSquareText, Play, Sparkles, Target, TrendingUp, UserRound, WandSparkles } from "lucide-react";
 import { CandidateShell } from "../components/CandidateShell";
 import { ScoreGauge } from "../components/ScoreGauge";
+import { ProgressChart } from "../components/ProgressChart";
 import { CRITERIA, EXPERIENCES, OBJECTIVES, SITUATIONS, TYPES, cn } from "../lib/labels";
 import { historyStore, profileStore } from "../lib/storage";
 import { isReport, type HistoryEntry, type Report } from "../lib/types";
@@ -175,6 +176,16 @@ export default function Dashboard() {
           </motion.section>
         </div>
       </div>
+
+      {hasHistory && (
+        <motion.section {...enter(0.32)} className="panel mt-5 rounded-[26px] p-6 sm:p-7">
+          <div className="mb-5 flex items-center justify-between">
+            <h2 className="text-lg font-bold">Votre progression</h2>
+            <TrendingUp size={20} className="text-[#7A52DA]" />
+          </div>
+          <ProgressChart history={history} />
+        </motion.section>
+      )}
 
       {hasHistory && (
         <motion.section {...enter(0.34)} className="panel mt-5 rounded-[26px] p-6 sm:p-7">

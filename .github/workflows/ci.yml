@@ -1,0 +1,79 @@
+# Vérifie l'API, le front et les images Docker à chaque push et pull request.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api:
+    name: API (types, tests, builds)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/api/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - run: pnpm build:lambda
+
+  web:
+    name: Front (types, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+  docker:
+    name: Images Docker
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [api, web, piper]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Construire apps/${{ matrix.service }}
+        run: docker build -t interview-${{ matrix.service }} apps/${{ matrix.service }}
+      - name: Vérifier que Piper démarre et parle
+        if: matrix.service == 'piper'
+        run: |
+          docker run -d --name piper -p 5000:5000 interview-piper
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:5000/voices >/dev/null && break; sleep 2; done
+          curl -sf -X POST http://127.0.0.1:5000/synthesize -H 'Content-Type: application/json' \
+            -d '{"text":"Bonjour, je suis Lina.","voice":"fr_FR-siwis-medium"}' -o fr.wav
+          curl -sf -X POST http://127.0.0.1:5000/synthesize -H 'Content-Type: application/json' \
+            -d '{"text":"Hello, I am Lina.","voice":"en_US-hfc_female-medium"}' -o en.wav
+          ls -l fr.wav en.wav
+          test "$(head -c 4 fr.wav)" = "RIFF" && test "$(head -c 4 en.wav)" = "RIFF"

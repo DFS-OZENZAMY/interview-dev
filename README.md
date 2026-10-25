@@ -11,7 +11,9 @@ Le parcours candidat et le design reprennent ceux d'[ai-interview-platform](http
 - Conversation **mains libres** : Lina parle, le candidat répond à voix haute, et sa réponse part automatiquement après une pause de deux secondes. Il peut aussi l'interrompre, réécouter une question, mettre en pause ou répondre par écrit.
 - **Sans micro** (poste de bureau par exemple), l'entretien bascule automatiquement en réponses écrites, et Lina continue de parler.
 - **Bilan** : score sur 100, note par critère (clarté, pertinence, exemples, structure, motivation), points forts, axes de progrès, conseils et priorité pour la séance suivante.
-- **Historique** et progression dans le tableau de bord (enregistrés dans le navigateur, sans compte).
+- **Retour question par question** : chaque question avec la réponse donnée, ce qui fonctionne, ce qu'il faut travailler et une formulation plus percutante.
+- **Export PDF** du bilan, lisible à l'impression.
+- **Progression** : courbe des scores et moyenne par critère dans le tableau de bord, avec l'historique des séances (enregistrés dans le navigateur, sans compte).
 
 ## Structure
 
@@ -27,6 +29,7 @@ apps/
     src/index.ts    point d'entrée Vercel
   web/      front React + Vite + Tailwind (site statique)
   piper/    service de synthèse vocale Piper (voix gratuites et locales)
+.github/workflows/ci.yml   vérifications automatiques à chaque push
 docs/
   VOIX.md              guide complet de la voix et du micro
   CONFIGURER-LINA.md   personnaliser le comportement et les questions de Lina
@@ -57,7 +60,14 @@ En local, le front transmet les appels `/api` à l'API : rien d'autre à configu
 
 Pour un essai rapide sans Docker ni fichier `.env` : lancez seulement l’API avec `GROQ_API_KEY=gsk_... pnpm dev` (sessions en mémoire, voix du navigateur), puis le front.
 
-Tout en conteneurs (API, Piper, Redis, Postgres) : `docker compose up -d --build`, puis lancez le front avec `pnpm dev`.
+**Toute la plateforme en conteneurs** (front, API, Piper, Redis, Postgres) :
+
+```bash
+cp .env.example .env          # renseigner GROQ_API_KEY
+docker compose up -d --build
+```
+
+puis ouvrez **http://localhost:8080**. Le front est servi par Nginx, qui transmet les appels `/api` à l'API.
 
 ## La voix de Lina
 
@@ -116,12 +126,24 @@ Piper est une image Docker (`apps/piper`) : il se déploie sur toute plateforme 
 
 ### Le front
 
-`apps/web` produit un site statique (`pnpm build`, dossier `dist`), hébergeable sur Vercel, Netlify, Cloudflare Pages, S3, Nginx… Les fichiers `vercel.json` et `public/_redirects` gèrent le rechargement des pages.
+Avec Docker : l'image `apps/web/Dockerfile` (Nginx) sert le site et transmet `/api` à l'API (`API_UPSTREAM`, par défaut `api:3000`).
+
+Sans Docker : `apps/web` produit un site statique (`pnpm build`, dossier `dist`), hébergeable sur Vercel, Netlify, Cloudflare Pages, S3, Nginx… Les fichiers `vercel.json` et `public/_redirects` gèrent le rechargement des pages.
 
 Si l'API est sur un autre domaine que le front :
 
 - côté front, à la construction : `VITE_API_URL=https://api.mon-domaine.com` ;
 - côté API : `CORS_ORIGINS=https://mon-front.com`.
+
+## Tests et intégration continue
+
+```bash
+cd apps/api && pnpm test        # parcours d'entretien, bilan, voix, stockage, HTTP, prompts
+```
+
+Les tests n'appellent aucun service externe : le modèle, la voix et le stockage sont simulés.
+
+À chaque push sur `main` et à chaque pull request, GitHub Actions (`.github/workflows/ci.yml`) vérifie les types, lance les tests, construit l'API (Node et Lambda) et le front, puis construit les trois images Docker. Pour Piper, la CI démarre le conteneur et vérifie que les voix française et anglaise produisent bien de l'audio.
 
 ## Dépannage
 

@@ -27,8 +27,37 @@ const reportSchema = z.object({
   points_faibles: z.array(z.string()),
   conseils: z.array(z.string()),
   resume: z.string(),
+  // Retour détaillé par question ; facultatif pour rester tolérant si le modèle l'omet.
+  par_question: z
+    .array(
+      z.object({
+        question: z.string(),
+        ce_qui_va: z.string().default(""),
+        a_ameliorer: z.string().default(""),
+        exemple: z.string().default(""),
+      }),
+    )
+    .max(30)
+    .default([]),
 });
-export type Report = z.infer<typeof reportSchema> & { score_global: number };
+
+/** Question de Lina et réponse du candidat, reconstituées depuis la session (pas par le modèle). */
+export type Exchange = { question: string; reponse: string | null };
+
+export type Report = z.infer<typeof reportSchema> & { score_global: number; echanges: Exchange[] };
+
+/** Paires question / réponse dans l'ordre de l'entretien (le premier message est l'ouverture). */
+export function exchangesOf(s: Session): Exchange[] {
+  const out: Exchange[] = [];
+  const msgs = s.messages.slice(1);
+  for (let i = 0; i < msgs.length; i++) {
+    const m = msgs[i]!;
+    if (m.role !== "assistant") continue;
+    const next = msgs[i + 1];
+    out.push({ question: m.content, reponse: next?.role === "user" ? next.content : null });
+  }
+  return out;
+}
 
 export type StartInput = {
   poste: string;
@@ -88,14 +117,15 @@ export class InterviewService {
           { role: "system", content: system },
           { role: "user", content: user },
         ],
-        { maxTokens: 2000, json: true },
+        // Le retour par question allonge la réponse (et le raisonnement du modèle compte dans ce budget).
+        { maxTokens: 4000, json: true },
       );
       try {
         const parsed = reportSchema.safeParse(JSON.parse(raw.replace(/```json|```/g, "").trim()));
         if (parsed.success) {
           const values = Object.values(parsed.data.scores);
           const score_global = Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10);
-          return { ...parsed.data, score_global };
+          return { ...parsed.data, score_global, echanges: exchangesOf(s) };
         }
         console.error("Rapport invalide :", parsed.error.issues);
       } catch (e) {

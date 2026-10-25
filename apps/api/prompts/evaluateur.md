@@ -7,5 +7,14 @@ L'entretien a été interrompu avant la fin : évalue uniquement les réponses d
 Tiens compte des objectifs du candidat ({{objectifs}}) dans tes conseils.
 Rédige tous les textes en {{langue}}, au vouvoiement, de façon concrète et actionnable (2 à 4 éléments par liste).
 
-Note le candidat de 0 à 10 sur chaque critère. Réponds UNIQUEMENT avec un objet JSON de cette forme :
-{"scores":{"clarte":0,"pertinence":0,"exemples_concrets":0,"structure":0,"motivation":0},"points_forts":["..."],"points_faibles":["..."],"conseils":["..."],"resume":"..."}
+Note le candidat de 0 à 10 sur chaque critère.
+
+Ajoute aussi un retour pour CHAQUE question posée par Lina, dans l'ordre du transcript (« par_question ») :
+- « question » : la question de Lina résumée en une phrase courte ;
+- « ce_qui_va » : ce qui fonctionne dans la réponse du candidat (une phrase) ;
+- « a_ameliorer » : le point principal à travailler (une phrase) ;
+- « exemple » : une meilleure formulation possible, à l'oral, en deux phrases au plus, qui reprend ce que le candidat a dit sans inventer de faits sur son parcours.
+Si le candidat n'a pas répondu à une question, indique-le dans « a_ameliorer » et laisse « ce_qui_va » vide.
+
+Réponds UNIQUEMENT avec un objet JSON de cette forme :
+{"scores":{"clarte":0,"pertinence":0,"exemples_concrets":0,"structure":0,"motivation":0},"points_forts":["..."],"points_faibles":["..."],"conseils":["..."],"resume":"...","par_question":[{"question":"...","ce_qui_va":"...","a_ameliorer":"...","exemple":"..."}]}

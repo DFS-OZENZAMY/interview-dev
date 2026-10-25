@@ -1,0 +1,38 @@
+# Front InterviewLab servi par Nginx. ${API_UPSTREAM} est remplacé au démarrage
+# (image officielle nginx, dossier /etc/nginx/templates). Par défaut : api:3000.
+server {
+    listen 8080;
+    server_name _;
+    root /usr/share/nginx/html;
+
+    gzip on;
+    gzip_types text/css application/javascript application/json image/svg+xml;
+
+    # API : /api/... est transmis à l'API sans le préfixe /api
+    location /api/ {
+        proxy_pass http://${API_UPSTREAM}/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # La voix de Lina arrive en streaming : on la transmet sans attendre la fin
+        proxy_buffering off;
+        # Le bilan peut prendre plusieurs dizaines de secondes
+        proxy_read_timeout 120s;
+        # Réponses orales envoyées pour transcription (8 Mo max côté API)
+        client_max_body_size 9m;
+    }
+
+    # Fichiers versionnés par Vite : mis en cache longtemps
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        try_files $uri =404;
+    }
+
+    # Application monopage : toutes les autres routes renvoient index.html
+    location / {
+        add_header Cache-Control "no-cache";
+        try_files $uri $uri/ /index.html;
+    }
+}

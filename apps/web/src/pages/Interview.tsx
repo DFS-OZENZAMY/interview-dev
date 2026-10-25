@@ -119,6 +119,18 @@ export default function Interview() {
     return () => clearInterval(t);
   }, [phase, live]);
 
+  // Fermer ou recharger l'onglet en plein entretien ferait perdre la séance : le navigateur demande confirmation.
+  useEffect(() => {
+    if (phase !== "live" && phase !== "countdown") return;
+    const warn = (e: BeforeUnloadEvent) => {
+      if (finishing.current) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [phase]);
+
   useEffect(() => {
     alive.current = true;
     return () => {

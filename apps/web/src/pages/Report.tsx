@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
-import { ArrowLeft, Check, Lightbulb, RotateCcw, Sparkles, Target } from "lucide-react";
+import { ArrowLeft, Check, Download, Lightbulb, RotateCcw, Sparkles, Target } from "lucide-react";
 import { ScoreGauge } from "../components/ScoreGauge";
+import { QuestionReview } from "../components/QuestionReview";
 import { api } from "../lib/api";
 import { CRITERIA, TYPES, formatDuration } from "../lib/labels";
 import { historyStore } from "../lib/storage";
@@ -44,18 +45,24 @@ export default function ReportPage() {
   const focus = report ? FOCUS[weakestKey(report)] : null;
 
   return (
-    <main className="on-dark relative min-h-dvh overflow-hidden bg-night px-4 pb-16 pt-8 text-white sm:px-8 sm:pt-12">
+    <main className="report-page on-dark relative min-h-dvh overflow-hidden bg-night px-4 pb-16 pt-8 text-white sm:px-8 sm:pt-12">
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_52%_8%,#2D3C82_0%,#17204B_34%,#0A1028_74%)]" />
       <div aria-hidden="true" className="blob -right-32 top-12 size-96 bg-[#A453FA]/15 blur-[100px]" />
       <div aria-hidden="true" className="blob -left-36 top-80 size-96 bg-[#32CCC8]/10 blur-[100px]" />
       <div className="relative mx-auto max-w-5xl">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <Link to="/tableau-de-bord" className="glass-dark inline-flex min-h-11 items-center gap-2 rounded-2xl px-4 text-sm font-semibold">
+          <Link to="/tableau-de-bord" className="no-print glass-dark inline-flex min-h-11 items-center gap-2 rounded-2xl px-4 text-sm font-semibold">
             <ArrowLeft size={17} /> Tableau de bord
           </Link>
-          <p className="text-sm font-extrabold tracking-[-.03em] text-[#BFC7F7]">
-            Interview<span className="text-[#DEACFB]">Lab</span>
-          </p>
+          {report ? (
+            <button type="button" onClick={() => window.print()} className="no-print glass-dark inline-flex min-h-11 items-center gap-2 rounded-2xl px-4 text-sm font-semibold">
+              <Download size={17} /> Télécharger en PDF
+            </button>
+          ) : (
+            <p className="text-sm font-extrabold tracking-[-.03em] text-[#BFC7F7]">
+              Interview<span className="text-[#DEACFB]">Lab</span>
+            </p>
+          )}
         </div>
 
         {!entry ? (
@@ -104,8 +111,8 @@ export default function ReportPage() {
                       {Object.entries(report.scores).map(([key, value]) => (
                         <div key={key} className="grid grid-cols-[130px_1fr_40px] items-center gap-3 text-sm">
                           <dt className="text-[#C7D2EE]">{CRITERIA[key] ?? key}</dt>
-                          <dd className="h-2 overflow-hidden rounded-full bg-white/10">
-                            <span className="block h-full rounded-full bg-gradient-to-r from-[#38BDA6] via-[#4D77E8] to-[#8C79EE] transition-[width] duration-1000" style={{ width: `${value * 10}%` }} />
+                          <dd className="print-track h-2 overflow-hidden rounded-full bg-white/10">
+                            <span className="print-bar block h-full rounded-full bg-gradient-to-r from-[#38BDA6] via-[#4D77E8] to-[#8C79EE] transition-[width] duration-1000" style={{ width: `${value * 10}%` }} />
                           </dd>
                           <dd className="text-right font-semibold tabular-nums">{value}/10</dd>
                         </div>
@@ -145,6 +152,8 @@ export default function ReportPage() {
                   </div>
                 </section>
 
+                <QuestionReview report={report} />
+
                 {focus && (
                   <section aria-labelledby="suite" className="rise relative mt-7 overflow-hidden rounded-[30px] border border-[#BAA6FE]/25 bg-gradient-to-br from-[#252657]/90 via-[#1B2751]/95 to-[#14354D]/90 p-6 shadow-[0_24px_70px_#060B2966] sm:p-9" style={{ animationDelay: ".4s" }}>
                     <div aria-hidden="true" className="blob -right-20 -top-28 size-72 bg-[#BA82FF]/15 blur-[85px]" />
@@ -160,7 +169,7 @@ export default function ReportPage() {
               </>
             )}
 
-            <nav aria-label="Après l’entretien" className="rise mt-9 flex flex-col gap-3 sm:flex-row sm:justify-center" style={{ animationDelay: ".45s" }}>
+            <nav aria-label="Après l’entretien" className="no-print rise mt-9 flex flex-col gap-3 sm:flex-row sm:justify-center" style={{ animationDelay: ".45s" }}>
               <Link to="/preparation" className="btn-gradient inline-flex min-h-13 items-center justify-center gap-3 rounded-2xl px-7 py-4 text-sm font-bold">
                 Refaire un entretien <RotateCcw size={17} />
               </Link>

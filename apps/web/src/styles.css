@@ -139,3 +139,19 @@ button:not(:disabled) { cursor: pointer; }
 @keyframes float-y { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
 @keyframes indeterminate { from { transform: translateX(-110%); } to { transform: translateX(300%); } }
 @keyframes rise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ---- Impression / PDF du bilan ---- */
+@media print {
+  @page { margin: 14mm; }
+  body { background: #fff !important; }
+  .no-print, .blob { display: none !important; }
+  .report-page { background: #fff !important; color: #172041 !important; min-height: 0 !important; padding: 0 !important; }
+  .report-page > div[aria-hidden="true"] { display: none !important; }
+  .report-page * { color: #172041 !important; background: transparent !important; box-shadow: none !important;
+    -webkit-backdrop-filter: none !important; backdrop-filter: none !important; animation: none !important; text-shadow: none !important; }
+  .report-page section, .report-page li.print-card { border-color: #d9def0 !important; break-inside: avoid; }
+  .report-page .print-open { display: block !important; }
+  .report-page svg text { fill: #172041 !important; }
+  .report-page .print-track { background: #e9ecf6 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .report-page .print-bar { background: #6d6cf5 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
