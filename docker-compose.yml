@@ -25,6 +25,9 @@ services:
       TRUST_PROXY_HOPS: 1
       # Voix de Lina par Piper (gratuit). Une clé ElevenLabs ou OpenAI dans .env reste prioritaire en mode auto.
       PIPER_URL: http://piper:5000
+      # Pocket TTS (profil « pocket ») : utilisé seulement avec TTS_PROVIDER=pocket
+      POCKET_TTS_URL_FR: http://pocket-fr:8000
+      POCKET_TTS_URL_EN: http://pocket-en:8000
     ports:
       - "${API_PORT:-3000}:3000"
     depends_on:
@@ -54,6 +57,38 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
+
+  # Pocket TTS (Kyutai) : voix plus naturelles, en option (plus lourd que Piper).
+  # Activer : TTS_PROVIDER=pocket dans le .env, puis : docker compose --profile pocket up -d
+  pocket-fr:
+    profiles: [pocket]
+    build: ./apps/pocket-tts
+    image: interview-dev-pocket-tts
+    container_name: interview-pocket-fr
+    restart: unless-stopped
+    environment:
+      POCKET_LANGUAGE: french
+      POCKET_VOICE: ${POCKET_TTS_VOICE_FR:-estelle}
+      HF_TOKEN: ${HF_TOKEN:-}
+    ports:
+      - "${DOCKER_BIND_ADDRESS:-127.0.0.1}:8001:8000"
+    cpus: 2
+
+  pocket-en:
+    profiles: [pocket]
+    build: ./apps/pocket-tts
+    image: interview-dev-pocket-tts
+    container_name: interview-pocket-en
+    restart: unless-stopped
+    depends_on:
+      - pocket-fr
+    environment:
+      POCKET_LANGUAGE: english
+      POCKET_VOICE: ${POCKET_TTS_VOICE_EN:-alba}
+      HF_TOKEN: ${HF_TOKEN:-}
+    ports:
+      - "${DOCKER_BIND_ADDRESS:-127.0.0.1}:8002:8000"
+    cpus: 2
 
   db:
     image: postgres:16

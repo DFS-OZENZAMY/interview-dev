@@ -61,7 +61,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [api, web, piper]
+        service: [api, web, piper, pocket-tts]
     steps:
       - uses: actions/checkout@v4
       - name: Construire apps/${{ matrix.service }}
@@ -77,3 +77,11 @@ jobs:
             -d '{"text":"Hello, I am Lina.","voice":"en_US-hfc_female-medium"}' -o en.wav
           ls -l fr.wav en.wav
           test "$(head -c 4 fr.wav)" = "RIFF" && test "$(head -c 4 en.wav)" = "RIFF"
+      - name: Vérifier que Pocket TTS démarre et parle
+        if: matrix.service == 'pocket-tts'
+        run: |
+          docker run -d --name pocket -p 8000:8000 interview-pocket-tts
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:8000/health >/dev/null && break; sleep 3; done
+          curl -sf -X POST http://127.0.0.1:8000/tts -F "text=Bonjour, je suis Lina." -F "voice_url=estelle" -o fr.wav
+          ls -l fr.wav
+          test "$(head -c 4 fr.wav)" = "RIFF"

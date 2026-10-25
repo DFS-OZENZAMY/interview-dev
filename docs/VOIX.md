@@ -9,11 +9,12 @@ La variable `TTS_PROVIDER` choisit le moteur de synthèse :
 | Valeur | Moteur | Coût | Remarques |
 |---|---|---|---|
 | `piper` | [Piper](https://github.com/OHF-Voice/piper1-gpl), voix du catalogue [PiperHub](https://piperhub.org) | Gratuit | Tourne en local dans le service `apps/piper`. Valeur par défaut du `.env.example`. |
+| `pocket` | [Pocket TTS](https://github.com/kyutai-labs/pocket-tts) de Kyutai | Gratuit | Voix plus naturelles que Piper, en streaming. Tourne en local dans `apps/pocket-tts` (plus lourd). |
 | `elevenlabs` | [ElevenLabs](https://elevenlabs.io) | Payant | Voix les plus naturelles, diffusées en streaming. |
 | `openai` | OpenAI, ou tout service compatible (`OPENAI_BASE_URL`) | Payant | Le modèle `gpt-4o-mini-tts` reçoit des consignes de ton. |
 | `browser` | Voix intégrée au navigateur | Gratuit | Qualité variable selon le système. |
 | `none` | Aucune voix | Gratuit | Les questions s'affichent seulement à l'écran. |
-| `auto` | Le premier disponible : ElevenLabs, puis OpenAI, puis Piper, puis navigateur | | Pratique quand on change souvent de configuration. |
+| `auto` | Le premier disponible : ElevenLabs, puis OpenAI, puis Piper, puis navigateur | | Pratique quand on change souvent de configuration. Ne choisit jamais Pocket TTS, qui doit être demandé explicitement. |
 
 Si le moteur choisi échoue pendant un entretien (service arrêté, quota dépassé), Lina bascule automatiquement sur la voix du navigateur pour ne pas interrompre la conversation.
 
@@ -79,6 +80,78 @@ Vérifiez la licence de chaque voix sur sa fiche PiperHub avant un usage commerc
 ### Héberger Piper en production
 
 Le service Piper est une image Docker : il se déploie sur toute plateforme à conteneurs (Cloud Run, Fly.io, Render, Railway, ECS, un VPS…). Indiquez ensuite son adresse dans `PIPER_URL` côté API. Le serveur Piper n'a pas d'authentification : gardez-le sur un réseau privé (même réseau Docker, VPC) plutôt que de l'exposer publiquement. Comptez environ 1 Go de mémoire.
+
+## Pocket TTS (Kyutai)
+
+[Pocket TTS](https://github.com/kyutai-labs/pocket-tts) est un modèle de synthèse vocale de Kyutai, sous licence MIT, conçu pour tourner sur un simple processeur.
+
+### Ce qu'il apporte
+
+- **Des voix plus naturelles** que Piper, avec des intonations proches de la parole réelle.
+- **Le streaming** : le premier son arrive en environ 200 ms, avant même que la phrase soit entièrement générée. Lina enchaîne donc plus vite après votre réponse.
+- **Un fonctionnement local et gratuit**, sans clé d'API : un petit modèle (100 millions de paramètres) qui utilise 2 cœurs de processeur et va plus vite que le temps réel.
+- **Le clonage de voix** : quelques secondes d'enregistrement suffisent pour donner à Lina la voix de votre choix (voir plus bas).
+- **Plusieurs langues** : anglais, français, allemand, italien, espagnol, portugais. La plateforme utilise le français et l'anglais.
+
+En contrepartie, il est plus lourd que Piper : l'image contient PyTorch (environ 1 Go), et chaque langue tourne dans son propre conteneur. C'est pourquoi il est en option.
+
+### Voix par défaut
+
+| Langue | Voix | Conteneur | Adresse locale |
+|---|---|---|---|
+| Français | **Estelle**, voix féminine (voix par défaut du modèle français) | `pocket-fr` | `http://127.0.0.1:8001` |
+| Anglais | **Alba**, voix féminine (voix par défaut du modèle anglais) | `pocket-en` | `http://127.0.0.1:8002` |
+
+### L'activer
+
+1. Dans le `.env` :
+
+   ```
+   TTS_PROVIDER=pocket
+   ```
+
+2. Construire et lancer les deux conteneurs (profil `pocket`, non lancé par défaut) :
+
+   ```bash
+   docker compose --profile pocket up -d --build
+   ```
+
+   La première construction télécharge PyTorch et les modèles : comptez plusieurs minutes. Attendez que `pocket-fr` et `pocket-en` soient « healthy » (`docker compose ps`).
+
+3. Redémarrer l'API pour qu'elle prenne en compte le changement de voix :
+   - tout en Docker : `docker compose up -d api` ;
+   - avec `pnpm dev` : relancez la commande. Le `.env.example` contient déjà les adresses locales (`POCKET_TTS_URL_FR`, `POCKET_TTS_URL_EN`).
+
+L'écran de préparation affiche alors « Voix Pocket TTS : Estelle ». Pour revenir à Piper : `TTS_PROVIDER=piper`, puis redémarrez l'API. Vous pouvez arrêter les conteneurs Pocket avec `docker compose --profile pocket stop pocket-fr pocket-en`.
+
+Une seule langue suffit si vous n'utilisez que le français : laissez `POCKET_TTS_URL_EN` vide et lancez seulement `docker compose --profile pocket up -d pocket-fr`. Les entretiens en anglais utiliseront alors la voix du navigateur.
+
+### Changer de voix
+
+**Une autre voix du catalogue** : le [catalogue Pocket TTS](https://github.com/kyutai-labs/pocket-tts#the-generate-command) propose surtout des voix anglaises (par exemple `anna`, `eve`, `jane`, `mary`, `vera`, `fantine` pour des voix féminines). Indiquez son nom :
+
+```
+POCKET_TTS_VOICE_EN=jane
+```
+
+puis `docker compose --profile pocket up -d` et redémarrez l'API. Les licences de chaque voix sont détaillées sur [huggingface.co/kyutai/tts-voices](https://huggingface.co/kyutai/tts-voices).
+
+**Cloner une voix** à partir d'un enregistrement (fichier `.wav`, quelques secondes de parole claire) :
+
+1. Le modèle avec clonage nécessite d'accepter ses conditions sur [huggingface.co/kyutai/pocket-tts](https://huggingface.co/kyutai/pocket-tts), puis de créer un jeton d'accès Hugging Face et de l'indiquer dans `HF_TOKEN`.
+2. Indiquez l'adresse de l'enregistrement, par exemple une voix du dépôt public de Kyutai :
+
+   ```
+   POCKET_TTS_VOICE_FR=hf://kyutai/tts-voices/unmute-prod-website/developpeuse-3.wav
+   ```
+
+3. Recréez les conteneurs Pocket (`docker compose --profile pocket up -d`) : au démarrage, ils téléchargent le modèle avec clonage grâce à `HF_TOKEN` (accès Internet nécessaire). Redémarrez ensuite l'API.
+
+Kyutai interdit de cloner la voix d'une personne sans son accord explicite. N'utilisez que votre propre voix, une voix dont vous avez l'autorisation ou une voix du dépôt public.
+
+### Héberger Pocket TTS en production
+
+Comme Piper, chaque conteneur se déploie sur une plateforme à conteneurs (Cloud Run, Fly.io, Render, ECS, un VPS…). Prévoyez 2 cœurs et environ 1 Go de mémoire par langue. Indiquez les adresses dans `POCKET_TTS_URL_FR` et `POCKET_TTS_URL_EN`, et gardez ces services sur un réseau privé : ils n'ont pas d'authentification.
 
 ## ElevenLabs
 

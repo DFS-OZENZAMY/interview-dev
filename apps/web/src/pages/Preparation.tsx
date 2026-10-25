@@ -11,10 +11,14 @@ import { hasAudioInput } from "../lib/voice";
 import type { Duration, InterviewType, Locale, Objective, VoiceConfig } from "../lib/types";
 
 const card = "panel panel-strong rounded-[28px] p-6 sm:p-9";
-const PROVIDERS: Record<string, string> = { piper: "Piper", elevenlabs: "ElevenLabs", openai: "OpenAI", groq: "Whisper (Groq)" };
+const PROVIDERS: Record<string, string> = { pocket: "Pocket TTS", piper: "Piper", elevenlabs: "ElevenLabs", openai: "OpenAI", groq: "Whisper (Groq)" };
 
-/** « fr_FR-siwis-medium » → « Siwis » ; un nom de voix personnalisée est affiché tel quel. */
-function piperVoiceName(id: string) {
+/**
+ * Nom lisible d'une voix : « fr_FR-siwis-medium » (Piper) → « Siwis », « estelle » (Pocket TTS) → « Estelle ».
+ * Une voix clonée (fichier ou adresse) devient « voix personnalisée ».
+ */
+function voiceName(id: string) {
+  if (/[/:]/.test(id) || /\.(wav|mp3|safetensors)$/i.test(id)) return "voix personnalisée";
   const m = id.match(/^[a-z]{2,3}_[A-Z]{2}-(.+)-(x_low|low|medium|high)$/);
   const name = (m ? m[1]! : id).replace(/[_-]+/g, " ");
   return name.charAt(0).toUpperCase() + name.slice(1);
@@ -76,10 +80,10 @@ export default function Preparation() {
     navigate("/entretien");
   }
 
-  const piperVoice = voice?.tts.provider === "piper" && voice.tts.voices ? piperVoiceName(voice.tts.voices[locale]) : null;
+  const namedVoice = voice?.tts.voices ? voiceName(voice.tts.voices[locale]) : null;
   const voiceLabel =
     voice?.tts.mode === "server"
-      ? `Voix ${PROVIDERS[voice.tts.provider ?? ""] ?? voice.tts.provider}${piperVoice ? ` : ${piperVoice}` : ""}`
+      ? `Voix ${PROVIDERS[voice.tts.provider ?? ""] ?? voice.tts.provider}${namedVoice ? ` : ${namedVoice}` : ""}`
       : voice?.tts.mode === "none"
         ? "Sans voix (texte uniquement)"
         : "Voix du navigateur";

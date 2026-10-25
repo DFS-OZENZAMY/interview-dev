@@ -2,7 +2,7 @@ import type { Context } from "hono";
 import { createApp, type AppDeps } from "../core/app";
 import { loadConfig, type Config } from "../core/config";
 import { MemoryKV, selectKV, type KV } from "../core/kv";
-import { selectVoice, type VoiceSetup } from "../core/voice";
+import { PROVIDER_LABEL, selectVoice, type VoiceSetup } from "../core/voice";
 import { IoredisKV, maskRedisUrl } from "./redis-kv";
 
 /**
@@ -18,7 +18,7 @@ export function createNodeApp(getClientIp: AppDeps["getClientIp"], kvOverride?: 
 
 const WSL_HINT =
   "  - Sous WSL avec Docker Desktop, si « docker compose ps » affiche 127.0.0.1:PORT et que rien ne répond :\n" +
-  "    ajoutez DOCKER_BIND_ADDRESS=0.0.0.0 dans le .env, puis : docker compose up -d redis piper";
+  "    ajoutez DOCKER_BIND_ADDRESS=0.0.0.0 dans le .env, puis recréez les conteneurs (docker compose up -d)";
 
 /**
  * Vérifie au démarrage que Redis répond. En local, bascule sur la mémoire avec une explication ;
@@ -49,16 +49,19 @@ export async function checkStore(kv: KV, config: Config): Promise<{ kv: KV; fata
  * Vérifie au démarrage que le service de voix répond (Piper). Sinon : message clair,
  * voix du navigateur en attendant, et nouvelle vérification toutes les 15 secondes.
  */
-export async function checkVoice(voice: VoiceSetup, config: Config) {
+export async function checkVoice(voice: VoiceSetup, _config: Config) {
   const tts = voice.tts;
   if (!tts?.inner.probe) return;
   if (await tts.probe()) return;
   tts.markDown();
+  const label = PROVIDER_LABEL[tts.name];
+  const service = tts.name === "pocket" ? "pocket-fr pocket-en" : tts.name;
+  const up = tts.name === "pocket" ? "docker compose --profile pocket up -d" : `docker compose up -d ${service}`;
   console.warn(
     [
-      `[voix] ${tts.name === "piper" ? "Piper" : tts.name} ne répond pas à l'adresse ${config.PIPER_URL}.`,
-      "  - Piper tourne-t-il ? Lancez : docker compose up -d piper   (puis : docker compose ps, docker compose logs piper)",
-      "  - Au premier lancement, la construction de l'image télécharge les voix : patientez qu'il soit « healthy ».",
+      `[voix] ${label} ne répond pas (${tts.endpoint ?? "adresse inconnue"}).`,
+      `  - ${label} tourne-t-il ? Lancez : ${up}   (puis : docker compose ps, docker compose logs ${service})`,
+      "  - Au premier lancement, la construction de l'image télécharge les modèles : patientez qu'il soit « healthy ».",
       WSL_HINT,
       "[voix] En attendant, Lina utilise la voix du navigateur. L'API réessaie toutes les 15 secondes.",
     ].join("\n"),
@@ -67,7 +70,7 @@ export async function checkVoice(voice: VoiceSetup, config: Config) {
     if (await tts.probe()) {
       tts.markUp();
       clearInterval(timer);
-      console.log("[voix] Piper répond de nouveau : Lina retrouve sa voix.");
+      console.log(`[voix] ${label} répond de nouveau : Lina retrouve sa voix.`);
     } else tts.markDown();
   }, 15_000);
   timer.unref();

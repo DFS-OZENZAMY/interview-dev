@@ -146,6 +146,16 @@ test("choix de la voix : piper explicite, priorités du mode auto, navigateur pa
   assert.throws(() => selectVoice(loadConfig({ ...base, TTS_PROVIDER: "piper" })), /PIPER_URL/);
 });
 
+test("Pocket TTS : choisi seulement explicitement, voix féminines par défaut", () => {
+  const pocket = selectVoice(loadConfig({ ...base, TTS_PROVIDER: "pocket", POCKET_TTS_URL_FR: "http://p:8001" })).tts;
+  assert.equal(pocket?.name, "pocket");
+  assert.deepEqual(pocket?.voices, { fr: "estelle", en: "alba" });
+  assert.equal(pocket?.endpoint, "http://p:8001 (fr)");
+  // En mode auto, Pocket n'est jamais choisi même si son adresse est présente
+  assert.equal(selectVoice(loadConfig({ ...base, POCKET_TTS_URL_FR: "http://p:8001" })).tts, null);
+  assert.throws(() => selectVoice(loadConfig({ ...base, TTS_PROVIDER: "pocket" })), /POCKET_TTS_URL/);
+});
+
 test("voix injoignable : mise de côté, puis échec immédiat sans rappeler le service", async () => {
   let calls = 0;
   const failing: TTS = {

@@ -25,14 +25,24 @@ export type PhraseName = keyof typeof PHRASES;
 export type Audio = { body: ReadableStream<Uint8Array>; contentType: string };
 
 export interface TTS {
-  readonly name: "piper" | "elevenlabs" | "openai";
+  readonly name: "pocket" | "piper" | "elevenlabs" | "openai";
   readonly cacheKey: string;
   /** Voix utilisées par langue, quand le fournisseur les expose (Piper). */
   readonly voices?: Record<Locale, string>;
   synthesize(text: string, locale: Locale): Promise<Audio>;
   /** Vérifie rapidement que le service répond (utilisé au démarrage). */
   probe?(): Promise<boolean>;
+  /** Adresse(s) du service, pour les messages de diagnostic. */
+  readonly endpoint?: string;
 }
+
+/** Nom lisible d'un fournisseur, pour les messages. */
+export const PROVIDER_LABEL: Record<TTS["name"], string> = {
+  pocket: "Pocket TTS",
+  piper: "Piper",
+  elevenlabs: "ElevenLabs",
+  openai: "OpenAI",
+};
 
 export interface STT {
   readonly name: "groq" | "openai";
@@ -161,6 +171,10 @@ export class PiperTTS implements TTS {
     return this.baseUrl;
   }
 
+  get endpoint() {
+    return this.baseUrl;
+  }
+
   async probe() {
     try {
       const r = await fetch(`${this.baseUrl.replace(/\/$/, "")}/voices`, { signal: AbortSignal.timeout(3_000) });
@@ -187,6 +201,61 @@ export class PiperTTS implements TTS {
 }
 
 /**
+ * Pocket TTS (Kyutai, licence MIT) : synthèse locale sur processeur, audio en streaming
+ * (premier son en ~200 ms). Le serveur officiel (`pocket-tts serve`) ne charge qu'une langue :
+ * une adresse par langue, chacune avec sa voix (catalogue ou clonage de voix).
+ * Contrat : POST /tts, formulaire `text` + `voice_url`, réponse audio/wav en streaming.
+ */
+export class PocketTTS implements TTS {
+  readonly name = "pocket" as const;
+  readonly cacheKey: string;
+  private urls: Partial<Record<Locale, string>>;
+
+  constructor(
+    urls: Partial<Record<Locale, string | undefined>>,
+    readonly voices: Record<Locale, string>,
+  ) {
+    // Seules les langues réellement configurées sont gardées.
+    this.urls = Object.fromEntries(Object.entries(urls).filter(([, u]) => Boolean(u))) as Partial<Record<Locale, string>>;
+    this.cacheKey = `pocket:${voices.fr}:${voices.en}`;
+  }
+
+  get endpoint() {
+    return Object.entries(this.urls)
+      .map(([l, u]) => `${u} (${l})`)
+      .join(", ");
+  }
+
+  async synthesize(text: string, locale: Locale): Promise<Audio> {
+    const base = this.urls[locale];
+    // Langue sans serveur : erreur simple (le navigateur prend le relais pour cette langue).
+    if (!base) throw new VoiceProviderError(`Pocket TTS : aucun serveur configuré pour la langue « ${locale} » (POCKET_TTS_URL_${locale.toUpperCase()})`);
+    const form = new FormData();
+    form.append("text", text);
+    form.append("voice_url", this.voices[locale]);
+    const r = await providerFetch("Pocket TTS", base, `${base.replace(/\/$/, "")}/tts`, {
+      method: "POST",
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+      body: form,
+    });
+    if (!r.ok || !r.body) throw await upstreamError("Pocket TTS", r);
+    return { body: r.body, contentType: "audio/wav" };
+  }
+
+  async probe() {
+    const checks = Object.values(this.urls).map(async (u) => {
+      try {
+        const r = await fetch(`${u!.replace(/\/$/, "")}/health`, { signal: AbortSignal.timeout(3_000) });
+        return r.ok;
+      } catch {
+        return false;
+      }
+    });
+    return (await Promise.all(checks)).every(Boolean);
+  }
+}
+
+/**
  * Enveloppe un fournisseur de voix : après une panne réseau, il est mis de côté 30 secondes.
  * Pendant ce temps, l'API répond tout de suite par une erreur et le navigateur prend le relais
  * avec sa propre voix, au lieu d'attendre un délai de connexion à chaque phrase.
@@ -207,6 +276,9 @@ export class GuardedTTS implements TTS {
   get voices() {
     return this.inner.voices;
   }
+  get endpoint() {
+    return this.inner.endpoint;
+  }
   get isDown() {
     return Date.now() < this.downUntil;
   }
@@ -224,7 +296,7 @@ export class GuardedTTS implements TTS {
 
   async synthesize(text: string, locale: Locale) {
     if (this.isDown) {
-      const err = new VoiceProviderError(`${this.inner.name} indisponible, voix du navigateur utilisée en attendant`);
+      const err = new VoiceProviderError(`${PROVIDER_LABEL[this.inner.name]} indisponible, voix du navigateur utilisée en attendant`);
       err.unreachable = true;
       throw err;
     }
@@ -279,7 +351,17 @@ export function selectVoice(c: Config): VoiceSetup {
   let ttsMode: VoiceSetup["ttsMode"] = "browser";
   const want = c.TTS_PROVIDER;
 
-  if (want === "piper") {
+  if (want === "pocket") {
+    if (!c.POCKET_TTS_URL_FR && !c.POCKET_TTS_URL_EN) {
+      throw new ConfigError(
+        "TTS_PROVIDER=pocket nécessite POCKET_TTS_URL_FR et/ou POCKET_TTS_URL_EN (ex. http://127.0.0.1:8001)",
+      );
+    }
+    tts = new PocketTTS(
+      { fr: c.POCKET_TTS_URL_FR, en: c.POCKET_TTS_URL_EN },
+      { fr: c.POCKET_TTS_VOICE_FR, en: c.POCKET_TTS_VOICE_EN },
+    );
+  } else if (want === "piper") {
     if (!c.PIPER_URL) throw new ConfigError("TTS_PROVIDER=piper nécessite PIPER_URL (ex. http://localhost:5000)");
     tts = new PiperTTS(c.PIPER_URL, { fr: c.PIPER_VOICE_FR, en: c.PIPER_VOICE_EN }, c.PIPER_LENGTH_SCALE);
   } else if (want === "elevenlabs" || (want === "auto" && c.ELEVENLABS_API_KEY)) {

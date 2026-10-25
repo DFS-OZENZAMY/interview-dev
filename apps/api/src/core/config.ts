@@ -34,7 +34,7 @@ const schema = z.object({
   // ---- Voix de Lina (synthèse vocale) ----
   // auto : ElevenLabs si ELEVENLABS_API_KEY, sinon OpenAI si OPENAI_API_KEY,
   // sinon Piper si PIPER_URL, sinon voix du navigateur.
-  TTS_PROVIDER: z.enum(["auto", "piper", "elevenlabs", "openai", "browser", "none"]).default("auto"),
+  TTS_PROVIDER: z.enum(["auto", "pocket", "piper", "elevenlabs", "openai", "browser", "none"]).default("auto"),
   // Piper : voix locales et gratuites (catalogue : https://piperhub.org), servies par apps/piper.
   PIPER_URL: z.url().optional(),
   // Voix féminines par défaut : Siwis (français) et HFC Female (anglais), modèles officiels Piper.
@@ -42,6 +42,13 @@ const schema = z.object({
   PIPER_VOICE_EN: z.string().regex(/^[\w.-]+$/).default("en_US-hfc_female-medium"),
   // Débit de parole : 1 = normal, plus grand = plus lent (ex. 1.1 pour un ton plus posé).
   PIPER_LENGTH_SCALE: z.coerce.number().min(0.5).max(2).optional(),
+  // Pocket TTS (Kyutai) : voix locales, streaming à faible latence. Un serveur par langue
+  // (apps/pocket-tts). Choisi uniquement avec TTS_PROVIDER=pocket, jamais en mode auto.
+  POCKET_TTS_URL_FR: z.url().optional(),
+  POCKET_TTS_URL_EN: z.url().optional(),
+  // Voix féminines par défaut du catalogue Pocket TTS : Estelle (français), Alba (anglais).
+  POCKET_TTS_VOICE_FR: z.string().regex(/^[\w.:/-]+$/).default("estelle"),
+  POCKET_TTS_VOICE_EN: z.string().regex(/^[\w.:/-]+$/).default("alba"),
   ELEVENLABS_API_KEY: z.string().optional(),
   ELEVENLABS_VOICE_ID: z.string().default("21m00Tcm4TlvDq8ikWAM"),
   ELEVENLABS_MODEL: z.string().default("eleven_flash_v2_5"),

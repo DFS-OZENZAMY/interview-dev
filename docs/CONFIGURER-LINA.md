@@ -13,7 +13,7 @@ Il décrit le code tel qu'il est dans `apps/api` et `apps/web` (état du dépôt
 | Le message qui force Lina à poser une question | `prompts/lina-relance.*.md` | `pnpm prompts` |
 | La façon dont le **rapport** est noté et rédigé | `prompts/evaluateur.md`, `evaluateur-entree.md` | `pnpm prompts` |
 | Le modèle d'IA, le fournisseur, les délais | `.env` (`GROQ_*`, `LLM_TIMEOUT_MS`) | redémarrer l'API |
-| La **voix** de Lina (fournisseur, voix, modèle) | `.env` (`TTS_*`, `PIPER_*`, `ELEVENLABS_*`, `OPENAI_*`) | redémarrer l'API (et Piper si ses voix changent) |
+| La **voix** de Lina (fournisseur, voix, modèle) | `.env` (`TTS_*`, `POCKET_TTS_*`, `PIPER_*`, `ELEVENLABS_*`, `OPENAI_*`) | redémarrer l'API (et Piper si ses voix changent) |
 | La transcription de la voix du candidat | `.env` (`STT_PROVIDER`, `STT_MODEL`) | redémarrer l'API |
 | Les phrases d'accueil et de fin prononcées | `apps/api/src/core/voice.ts` (`PHRASES`) | redémarrer l'API |
 | Le nombre de questions, la durée | `.env` (`TOTAL_QUESTIONS`) + `apps/web/src/lib/labels.ts` | redémarrer l'API, rebuild du front |
@@ -142,6 +142,7 @@ Variables dans `.env` (la référence complète est `apps/api/src/core/config.ts
 
 | `TTS_PROVIDER` | Comportement |
 |---|---|
+| `pocket` | Pocket TTS de Kyutai : voix locales plus naturelles, en streaming, servies par `apps/pocket-tts` (profil Docker `pocket`). Exige `POCKET_TTS_URL_FR` et/ou `POCKET_TTS_URL_EN`. Jamais choisi en mode `auto` |
 | `piper` (valeur du `.env.example`) | Voix locales et gratuites du catalogue [PiperHub](https://piperhub.org), servies par `apps/piper`. Exige `PIPER_URL` |
 | `auto` (défaut si la variable est absente) | ElevenLabs si `ELEVENLABS_API_KEY`, sinon OpenAI si `OPENAI_API_KEY`, sinon Piper si `PIPER_URL`, sinon voix du navigateur |
 | `elevenlabs` | Exige `ELEVENLABS_API_KEY` |
@@ -149,6 +150,7 @@ Variables dans `.env` (la référence complète est `apps/api/src/core/config.ts
 | `browser` | Voix du navigateur (gratuit, qualité variable) |
 | `none` | Pas de voix |
 
+Réglages Pocket TTS : `POCKET_TTS_VOICE_FR` (défaut `estelle`, voix féminine), `POCKET_TTS_VOICE_EN` (défaut `alba`, voix féminine), `HF_TOKEN` pour le clonage de voix. Voir [VOIX.md](VOIX.md).
 Réglages Piper : `PIPER_VOICE_FR` (défaut `fr_FR-siwis-medium`, voix féminine), `PIPER_VOICE_EN` (défaut `en_US-hfc_female-medium`, voix féminine), `PIPER_LENGTH_SCALE` (débit). Ajout de voix PiperHub et hébergement : voir [VOIX.md](VOIX.md).
 Réglages ElevenLabs : `ELEVENLABS_VOICE_ID` (la voix), `ELEVENLABS_MODEL` (défaut `eleven_flash_v2_5`, rapide et économique).
 Réglages OpenAI : `OPENAI_TTS_MODEL` (défaut `gpt-4o-mini-tts`), `OPENAI_TTS_VOICE` (défaut `coral`), `OPENAI_BASE_URL` (serveur compatible, par exemple auto-hébergé).

@@ -28,7 +28,8 @@ apps/
     src/entries/    node.ts (serveur), lambda.ts, worker.ts
     src/index.ts    point d'entrée Vercel
   web/      front React + Vite + Tailwind (site statique)
-  piper/    service de synthèse vocale Piper (voix gratuites et locales)
+  piper/       service de synthèse vocale Piper (voix gratuites et locales)
+  pocket-tts/  service Pocket TTS de Kyutai (voix locales plus naturelles, en option)
 .github/workflows/ci.yml   vérifications automatiques à chaque push
 docs/
   VOIX.md              guide complet de la voix et du micro
@@ -79,9 +80,32 @@ Par défaut, Lina parle avec **Piper**, un moteur de synthèse vocale libre et g
 Le fournisseur se change dans le `.env`, sans toucher au code :
 
 ```
-TTS_PROVIDER=piper          # piper, elevenlabs, openai, browser, none ou auto
+TTS_PROVIDER=piper          # piper, pocket, elevenlabs, openai, browser, none ou auto
 PIPER_VOICE_FR=fr_FR-siwis-medium
 ```
+
+| Fournisseur | Coût | Points forts | Activation |
+|---|---|---|---|
+| **Piper** (défaut) | Gratuit, local | Léger, démarre partout | `TTS_PROVIDER=piper` |
+| **Pocket TTS** (Kyutai) | Gratuit, local | Voix plus naturelles, streaming (~200 ms avant le premier son), clonage de voix | `TTS_PROVIDER=pocket` et `docker compose --profile pocket up -d` |
+| **ElevenLabs** | Payant | Voix premium | `TTS_PROVIDER=elevenlabs` et une clé |
+| **OpenAI** | Payant | Consignes de ton | `TTS_PROVIDER=openai` et une clé |
+| **Navigateur** | Gratuit | Aucun service à lancer | `TTS_PROVIDER=browser` |
+
+### Pocket TTS en bref
+
+[Pocket TTS](https://github.com/kyutai-labs/pocket-tts) est un modèle de Kyutai (licence MIT) qui tourne sur un simple processeur. Lina y parle avec **Estelle** en français et **Alba** en anglais, deux voix féminines.
+
+```
+TTS_PROVIDER=pocket
+```
+
+```bash
+docker compose --profile pocket up -d --build    # première fois : quelques minutes (PyTorch et modèles)
+docker compose up -d api                         # ou relancez pnpm dev
+```
+
+Chaque langue tourne dans son propre conteneur (`pocket-fr` sur le port 8001, `pocket-en` sur le port 8002), avec environ 2 cœurs et 1 Go de mémoire chacun : c'est pourquoi Pocket TTS est en option. Si un conteneur ne répond pas, Lina passe sur la voix du navigateur et reprend Pocket TTS dès qu'il revient.
 
 Pour ElevenLabs :
 
@@ -93,7 +117,7 @@ ELEVENLABS_VOICE_ID=identifiant_de_la_voix
 
 Les réponses du candidat sont transcrites par Whisper via Groq (même clé que le LLM), ou par la dictée du navigateur.
 
-Ajouter une voix PiperHub, régler le débit, héberger Piper, comportement sans micro : tout est détaillé dans **[docs/VOIX.md](docs/VOIX.md)**. Pour modifier la façon dont Lina mène l'entretien (ton, relances, questions), voir **[docs/CONFIGURER-LINA.md](docs/CONFIGURER-LINA.md)**.
+Ajouter une voix PiperHub, changer ou cloner une voix Pocket TTS, héberger les services de voix, comportement sans micro : tout est détaillé dans **[docs/VOIX.md](docs/VOIX.md)**. Pour modifier la façon dont Lina mène l'entretien (ton, relances, questions), voir **[docs/CONFIGURER-LINA.md](docs/CONFIGURER-LINA.md)**.
 
 ## Déployer
 
@@ -120,9 +144,9 @@ Points d'attention :
 - **Durée d'exécution** : la génération du bilan peut prendre plusieurs dizaines de secondes. Sur Lambda, régler le timeout à 60 s minimum.
 - **Stockage en mémoire** : réservé au développement local, un avertissement s'affiche au démarrage.
 
-### Piper
+### Piper et Pocket TTS
 
-Piper est une image Docker (`apps/piper`) : il se déploie sur toute plateforme à conteneurs. Indiquez son adresse dans `PIPER_URL` côté API, et gardez-le sur un réseau privé (il n'a pas d'authentification). Sur une plateforme sans conteneurs, utilisez plutôt ElevenLabs, OpenAI ou la voix du navigateur.
+Piper (`apps/piper`) et Pocket TTS (`apps/pocket-tts`) sont des images Docker : ils se déploient sur toute plateforme à conteneurs. Indiquez leurs adresses côté API (`PIPER_URL`, ou `POCKET_TTS_URL_FR` et `POCKET_TTS_URL_EN`), et gardez-les sur un réseau privé (ils n'ont pas d'authentification). Sur une plateforme sans conteneurs, utilisez plutôt ElevenLabs, OpenAI ou la voix du navigateur.
 
 ### Le front
 
@@ -143,7 +167,7 @@ cd apps/api && pnpm test        # parcours d'entretien, bilan, voix, stockage, H
 
 Les tests n'appellent aucun service externe : le modèle, la voix et le stockage sont simulés.
 
-À chaque push sur `main` et à chaque pull request, GitHub Actions (`.github/workflows/ci.yml`) vérifie les types, lance les tests, construit l'API (Node et Lambda) et le front, puis construit les trois images Docker. Pour Piper, la CI démarre le conteneur et vérifie que les voix française et anglaise produisent bien de l'audio.
+À chaque push sur `main` et à chaque pull request, GitHub Actions (`.github/workflows/ci.yml`) vérifie les types, lance les tests, construit l'API (Node et Lambda) et le front, puis construit les quatre images Docker. Pour Piper et Pocket TTS, la CI démarre le conteneur et vérifie que les voix produisent bien de l'audio.
 
 ## Dépannage
 
