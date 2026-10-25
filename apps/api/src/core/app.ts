@@ -1,10 +1,13 @@
 import { Hono, type Context, type MiddlewareHandler } from "hono";
+import { bodyLimit } from "hono/body-limit";
+import { cors } from "hono/cors";
 import { z } from "zod";
 import type { Config } from "./config";
-import { InterviewService } from "./interview";
+import { InterviewService, SessionDoneError } from "./interview";
 import type { KV } from "./kv";
 import { GroqLLM, type LLM } from "./llm";
 import { SessionBusyError, SessionNotFoundError, SessionStore } from "./sessions";
+import { PHRASES, selectVoice, synthesizeCached, VoiceProviderError, type Audio, type Locale, type VoiceSetup } from "./voice";
 
 /** Ce que chaque plateforme fournit à l'application. */
 export type AppDeps = {
@@ -12,8 +15,9 @@ export type AppDeps = {
   kv: KV;
   /** Adresse IP réelle du client, selon la plateforme (sert à la limite de requêtes). */
   getClientIp: (c: Context) => string | undefined;
-  /** Remplaçable pour les tests. */
+  /** Remplaçables pour les tests. */
   llm?: LLM;
+  voice?: VoiceSetup;
 };
 
 function safeEqual(a: string, b: string) {
@@ -24,24 +28,44 @@ function safeEqual(a: string, b: string) {
   return diff === 0;
 }
 
+const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
+const noControl = /^[^\n\r<>{}`]+$/;
+
 const startSchema = z.object({
-  poste: z
+  poste: z.string().trim().min(2).max(100).regex(noControl, "caractères non autorisés").default("Data engineer"),
+  type: z.enum(["rh", "technique"]).default("rh"),
+  locale: z.enum(["fr", "en"]).default("fr"),
+  // La fiche de poste est encadrée dans le prompt et traitée comme une simple donnée.
+  description: z
     .string()
-    .trim()
-    .min(2)
-    .max(100)
-    .regex(/^[^\n\r<>{}`]+$/, "caractères non autorisés")
-    .default("Data engineer"),
+    .max(3000)
+    .transform((v) => v.replace(/<\/?fiche_de_poste>/gi, "").trim())
+    .optional(),
+  objectifs: z.array(z.enum(["confiance", "structure", "communication", "connaissances", "stress"])).max(3).default([]),
+  experience: z.enum(["debutant", "junior", "confirme", "senior"]).optional(),
+  questions: z.coerce.number().int().min(1).max(30).optional(),
 });
 
 const answerSchema = z.object({
   sessionId: z.uuid(),
-  answer: z.string().trim().min(1).max(5000),
+  answer: z.string().trim().min(1).max(8000),
 });
 
-export function createApp({ config, kv, getClientIp, llm }: AppDeps) {
+function audioResponse(audio: Uint8Array | Audio, cacheControl: string) {
+  const isBytes = audio instanceof Uint8Array;
+  return new Response(isBytes ? (audio as Uint8Array<ArrayBuffer>) : audio.body, {
+    headers: {
+      "Content-Type": isBytes ? "audio/mpeg" : audio.contentType,
+      "Cache-Control": cacheControl,
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+}
+
+export function createApp({ config, kv, getClientIp, llm, voice }: AppDeps) {
   const model =
     llm ?? new GroqLLM(config.GROQ_API_KEY, config.GROQ_MODEL, config.GROQ_BASE_URL, config.LLM_TIMEOUT_MS);
+  const voiceSetup = voice ?? selectVoice(config);
   const interviews = new InterviewService(model, new SessionStore(kv, config.SESSION_TTL_SECONDS), config.TOTAL_QUESTIONS);
 
   const apiKeyAuth: MiddlewareHandler = async (c, next) => {
@@ -64,17 +88,55 @@ export function createApp({ config, kv, getClientIp, llm }: AppDeps) {
 
   const app = new Hono();
 
+  // Front hébergé sur un autre domaine : CORS_ORIGINS="https://mon-front.com,https://autre.com" ou "*".
+  if (config.CORS_ORIGINS) {
+    const origins = config.CORS_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean);
+    app.use(
+      "*",
+      cors({
+        origin: origins.includes("*") ? "*" : origins,
+        allowHeaders: ["Content-Type", "x-api-key"],
+        allowMethods: ["GET", "POST", "OPTIONS"],
+        maxAge: 600,
+      }),
+    );
+  }
+
   app.get("/health", async (c) => {
     const storeOk = await kv.ping().catch(() => false);
     return c.json({ ok: storeOk, store: kv.kind }, storeOk ? 200 : 503);
   });
 
+  // ---- Voix ----
+
+  app.get("/voice/config", (c) =>
+    c.json({
+      tts: { mode: voiceSetup.ttsMode, provider: voiceSetup.tts?.name ?? null },
+      stt: { mode: voiceSetup.sttMode, provider: voiceSetup.stt?.name ?? null },
+      phrases: PHRASES,
+      maxQuestions: config.TOTAL_QUESTIONS,
+    }),
+  );
+
+  app.use("/voice/phrase/*", apiKeyAuth, rateLimit);
+  app.get("/voice/phrase/:name", async (c) => {
+    const name = z.enum(["intro", "closing"]).safeParse(c.req.param("name"));
+    const locale = z.enum(["fr", "en"]).safeParse(c.req.query("locale") ?? "fr");
+    if (!name.success || !locale.success) return c.json({ error: "Phrase inconnue" }, 400);
+    if (!voiceSetup.tts) return c.json({ error: "Synthèse vocale serveur désactivée", mode: voiceSetup.ttsMode }, 404);
+    const text = PHRASES[name.data][locale.data].join(" ");
+    const audio = await synthesizeCached(voiceSetup.tts, kv, text, locale.data);
+    return audioResponse(audio, "public, max-age=86400");
+  });
+
+  // ---- Entretien ----
+
   app.use("/interview/*", apiKeyAuth, rateLimit);
 
   app.post("/interview/start", async (c) => {
     const body = startSchema.safeParse(await c.req.json().catch(() => ({})));
-    if (!body.success) return c.json({ error: "poste invalide (2 à 100 caractères)" }, 400);
-    return c.json(await interviews.start(body.data.poste));
+    if (!body.success) return c.json({ error: "Configuration d'entretien invalide", details: z.treeifyError(body.error) }, 400);
+    return c.json(await interviews.start(body.data));
   });
 
   app.post("/interview/answer", async (c) => {
@@ -83,11 +145,50 @@ export function createApp({ config, kv, getClientIp, llm }: AppDeps) {
     return c.json(await interviews.answer(body.data.sessionId, body.data.answer));
   });
 
-  app.get("/interview/:id", async (c) => {
+  const sessionId = (c: Context) => {
     const id = z.uuid().safeParse(c.req.param("id"));
-    if (!id.success) return c.json({ error: "id invalide" }, 400);
-    return c.json(await interviews.get(id.data));
+    return id.success ? id.data : null;
+  };
+
+  app.get("/interview/:id", async (c) => {
+    const id = sessionId(c);
+    if (!id) return c.json({ error: "id invalide" }, 400);
+    return c.json(await interviews.get(id));
   });
+
+  app.post("/interview/:id/finish", async (c) => {
+    const id = sessionId(c);
+    if (!id) return c.json({ error: "id invalide" }, 400);
+    return c.json(await interviews.finish(id));
+  });
+
+  // Lina prononce la dernière question de la session : le texte vient du serveur, jamais du client.
+  app.get("/interview/:id/speech", async (c) => {
+    const id = sessionId(c);
+    if (!id) return c.json({ error: "id invalide" }, 400);
+    if (!voiceSetup.tts) return c.json({ error: "Synthèse vocale serveur désactivée", mode: voiceSetup.ttsMode }, 404);
+    const { text, locale } = await interviews.currentSpeech(id);
+    if (!text) return c.json({ error: "Rien à prononcer" }, 404);
+    const audio = await voiceSetup.tts.synthesize(text, locale as Locale);
+    return audioResponse(audio, "private, max-age=600");
+  });
+
+  app.post(
+    "/interview/:id/transcribe",
+    bodyLimit({ maxSize: MAX_AUDIO_BYTES, onError: (c) => c.json({ error: "Audio trop volumineux (8 Mo max)" }, 413) }),
+    async (c) => {
+      const id = sessionId(c);
+      if (!id) return c.json({ error: "id invalide" }, 400);
+      if (!voiceSetup.stt) return c.json({ error: "Transcription serveur désactivée", mode: "browser" }, 404);
+      const session = await interviews.assertActive(id);
+      const form = await c.req.parseBody().catch(() => null);
+      const audio = form?.["audio"];
+      if (!(audio instanceof Blob) || audio.size === 0) return c.json({ error: "Champ audio manquant" }, 400);
+      if (!/^audio\/|^video\/webm/.test(audio.type || "audio/webm")) return c.json({ error: "Format audio non pris en charge" }, 415);
+      const text = await voiceSetup.stt.transcribe(audio, session.locale);
+      return c.json({ text });
+    },
+  );
 
   app.notFound((c) => c.json({ error: "Route introuvable" }, 404));
 
@@ -95,6 +196,11 @@ export function createApp({ config, kv, getClientIp, llm }: AppDeps) {
   app.onError((err, c) => {
     if (err instanceof SessionNotFoundError) return c.json({ error: "Session introuvable ou expirée" }, 404);
     if (err instanceof SessionBusyError) return c.json({ error: "Une réponse est déjà en cours de traitement" }, 409);
+    if (err instanceof SessionDoneError) return c.json({ error: "L'entretien est déjà terminé" }, 409);
+    if (err instanceof VoiceProviderError) {
+      console.error(err.message);
+      return c.json({ error: "Le service vocal est momentanément indisponible" }, 502);
+    }
     console.error(err);
     return c.json({ error: "Erreur interne, réessayez plus tard" }, 500);
   });

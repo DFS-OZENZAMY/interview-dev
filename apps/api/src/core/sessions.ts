@@ -1,13 +1,27 @@
 import type { Msg } from "./llm";
 import type { KV } from "./kv";
 
+export type InterviewType = "rh" | "technique";
+export type Objective = "confiance" | "structure" | "communication" | "connaissances" | "stress";
+export type Experience = "debutant" | "junior" | "confirme" | "senior";
+
 export type Session = {
   id: string;
   poste: string;
+  type: InterviewType;
+  locale: "fr" | "en";
+  description?: string;
+  objectifs: Objective[];
+  experience?: Experience;
+  /** Nombre de questions prévues pour cette séance. */
+  total: number;
   messages: Msg[];
   asked: number;
   done: boolean;
+  /** Fin anticipée demandée par le candidat. */
+  interrupted?: boolean;
   report?: unknown;
+  createdAt: number;
 };
 
 export class SessionNotFoundError extends Error {}
