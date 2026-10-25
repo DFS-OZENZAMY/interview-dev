@@ -1,3 +1,4 @@
+import { ConfigError } from "./config";
 /**
  * Stockage clé-valeur minimal dont l'API a besoin.
  * Trois implémentations : mémoire (local), Upstash REST (partout, y compris Workers)
@@ -143,14 +144,14 @@ export function selectKV(
   const store = cfg.STORE;
 
   if (store === "upstash" || (store === "auto" && hasUpstash)) {
-    if (!hasUpstash) throw new Error("STORE=upstash nécessite UPSTASH_REDIS_REST_URL et UPSTASH_REDIS_REST_TOKEN");
+    if (!hasUpstash) throw new ConfigError("STORE=upstash nécessite UPSTASH_REDIS_REST_URL et UPSTASH_REDIS_REST_TOKEN");
     return new UpstashKV(cfg.UPSTASH_REDIS_REST_URL!, cfg.UPSTASH_REDIS_REST_TOKEN!);
   }
 
   if (store === "redis" || (store === "auto" && cfg.REDIS_URL)) {
-    if (!cfg.REDIS_URL) throw new Error("STORE=redis nécessite REDIS_URL");
+    if (!cfg.REDIS_URL) throw new ConfigError("STORE=redis nécessite REDIS_URL");
     if (!redisFactory) {
-      throw new Error(
+      throw new ConfigError(
         "Ce runtime ne permet pas de connexion Redis TCP (REDIS_URL). Utilisez Upstash (UPSTASH_REDIS_REST_URL/TOKEN) ou STORE=memory.",
       );
     }

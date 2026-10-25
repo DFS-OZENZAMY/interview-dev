@@ -7,7 +7,7 @@ import { AnalysisLoader } from "../components/AnalysisLoader";
 import { ApiError, api, type Turn } from "../lib/api";
 import { TYPES, cn } from "../lib/labels";
 import { configStore, historyStore } from "../lib/storage";
-import { SpeechRecognitionImpl, micIssueMessage, type MicIssue } from "../lib/voice";
+import { SpeechRecognitionImpl, hasAudioInput, type MicStatus } from "../lib/voice";
 import { listener, speaker } from "../lib/voice-instance";
 import type { VoiceConfig } from "../lib/types";
 
@@ -39,6 +39,15 @@ function segments(text: string) {
   });
 }
 
+/** Message affiché quand le candidat doit répondre par écrit, selon la raison. */
+const WRITTEN_REASON: Record<Exclude<MicStatus, "granted">, string> = {
+  "no-device": "Aucun micro détecté sur cet appareil : répondez par écrit. Lina continue de vous poser ses questions à voix haute.",
+  denied: "Le micro n’est pas autorisé : répondez par écrit, ou autorisez le micro dans les réglages du navigateur puis cliquez sur « Répondre à l’oral ».",
+  busy: "Le micro est utilisé par une autre application : répondez par écrit, ou fermez l’autre application puis cliquez sur « Répondre à l’oral ».",
+  unsupported: "Le micro n’est pas disponible sur cette page (navigateur non compatible ou connexion non sécurisée) : répondez par écrit.",
+  unknown: "Le micro n’est pas disponible : répondez par écrit.",
+};
+
 const STATUS: Record<Live, string> = {
   thinking: "Lina prépare sa question",
   speaking: "Lina vous parle",
@@ -67,8 +76,8 @@ export default function Interview() {
   const [error, setError] = useState("");
   const [elapsed, setElapsed] = useState(0);
   const [stopOpen, setStopOpen] = useState(false);
-  const [micReady, setMicReady] = useState(listener.ready);
-  const [micIssue, setMicIssue] = useState<MicIssue | null>(listener.issue);
+  const [micStatus, setMicStatus] = useState<MicStatus>(listener.status);
+  const micCheck = useRef<Promise<MicStatus> | null>(null);
 
   const alive = useRef(true);
   const turn = useRef(0);
@@ -93,14 +102,9 @@ export default function Interview() {
   const locale = config?.locale ?? "fr";
   const v = voice ?? FALLBACK_VOICE;
   const serverTts = v.tts.mode === "server";
-  // Sans micro (absent, refusé, occupé), l'écoute vocale est désactivée : le candidat répond par écrit.
-  const listenMode: "server" | "browser" | null = micIssue
-    ? null
-    : v.stt.mode === "server" && micReady
-      ? "server"
-      : SpeechRecognitionImpl
-        ? "browser"
-        : null;
+  // Sans micro utilisable, aucune écoute possible : ni l'enregistrement, ni la dictée du navigateur.
+  const listenMode: "server" | "browser" | null =
+    micStatus !== "granted" ? null : v.stt.mode === "server" ? "server" : SpeechRecognitionImpl ? "browser" : null;
 
   const orbLevel = useCallback(() => {
     const l = liveRef.current;
@@ -125,6 +129,30 @@ export default function Interview() {
       }
     };
   }, []);
+
+  // Un micro branché ou débranché pendant l'entretien est pris en compte.
+  useEffect(() => {
+    const devices = navigator.mediaDevices;
+    if (!devices?.addEventListener) return;
+    const onChange = async () => {
+      if (listener.status === "granted" && listener.ready) return;
+      if ((await hasAudioInput()) === false) return;
+      const st = await listener.prepare();
+      if (!alive.current) return;
+      setMicStatus(st);
+      if (st === "granted" && prefs.current.textMode) setNotice("Un micro vient d’être détecté : vous pouvez répondre à l’oral.");
+    };
+    devices.addEventListener("devicechange", onChange);
+    return () => devices.removeEventListener("devicechange", onChange);
+  }, []);
+
+  /** Passe en mode écrit en expliquant pourquoi. */
+  function fallBackToWriting(status: MicStatus) {
+    setMicStatus(status);
+    setTextMode(true);
+    prefs.current.textMode = true;
+    setNotice(WRITTEN_REASON[status === "granted" ? "unknown" : status]);
+  }
 
   // ---------------------------------------------------------------- intro
 
@@ -167,19 +195,9 @@ export default function Interview() {
     // L'entretien est créé pendant l'intro : la première question est prête à la fin du compte à rebours.
     startPromise.current = api.start(config);
     startPromise.current.catch(() => {});
-    if (!listener.ready) {
-      void listener.prepare().then((ok) => {
-        if (!alive.current) return;
-        setMicReady(ok);
-        if (!ok) {
-          // Pas de micro utilisable : on bascule tout de suite en saisie écrite.
-          setMicIssue(listener.issue);
-          prefs.current.textMode = true;
-          setTextMode(true);
-          setNotice(`${micIssueMessage(listener.issue)} Vous pouvez répondre par écrit.`);
-        }
-      });
-    }
+    // Vérifie le micro pendant l'intro : la première écoute attend ce résultat.
+    micCheck.current = listener.prepare();
+    void micCheck.current.then((st) => alive.current && setMicStatus(st));
     api
       .voiceConfig()
       .catch(() => FALLBACK_VOICE)
@@ -257,14 +275,19 @@ export default function Interview() {
     setLive("listening");
     setPartial("");
     if (prefs.current.textMode) return;
-    if (!listenMode) {
-      setTextMode(true);
-      setNotice(micIssue ? `${micIssueMessage(micIssue)} Répondez par écrit.` : "La dictée vocale n’est pas disponible dans ce navigateur : répondez par écrit.");
-      return;
-    }
+    const status = micCheck.current ? await micCheck.current : listener.status;
+    if (!alive.current) return;
+    const mode =
+      status !== "granted" ? null : v.stt.mode === "server" ? "server" : SpeechRecognitionImpl ? "browser" : null;
+    if (!mode) return fallBackToWriting(status === "granted" ? "unsupported" : status);
     const myTurn = turn.current;
-    const res = await listener.listen({ mode: listenMode, locale, autoStop: prefs.current.handsFree, onPartial: setPartial });
-    if (!alive.current || myTurn !== turn.current || res.cancelled) return;
+    const res = await listener.listen({ mode, locale, autoStop: prefs.current.handsFree, onPartial: setPartial });
+    if (!alive.current || myTurn !== turn.current) return;
+    if (res.micError) {
+      micCheck.current = null;
+      return fallBackToWriting(listener.status === "granted" ? "no-device" : listener.status);
+    }
+    if (res.cancelled) return;
     if (res.text) return flow.current.submit(res.text);
     if (!res.audio) {
       setNotice("Je n’ai rien entendu. Reprenez quand vous voulez.");
@@ -400,26 +423,12 @@ export default function Interview() {
     prefs.current.textMode = true;
   }
 
-  async function retryMic() {
-    const ok = await listener.prepare();
+  async function switchToVoice() {
+    const st = await listener.prepare();
     if (!alive.current) return;
-    setMicReady(ok);
-    setMicIssue(ok ? null : listener.issue);
-    if (!ok) {
-      setNotice(`${micIssueMessage(listener.issue)} Vous pouvez répondre par écrit.`);
-      return;
-    }
-    setNotice("");
-    setTextMode(false);
-    prefs.current.textMode = false;
-    turn.current++;
-    // Laisse React recalculer listenMode avant de relancer l'écoute.
-    setTimeout(() => {
-      if (alive.current) flow.current.listen();
-    }, 50);
-  }
-
-  function switchToVoice() {
+    setMicStatus(st);
+    if (st !== "granted") return fallBackToWriting(st);
+    micCheck.current = Promise.resolve(st);
     setTextMode(false);
     prefs.current.textMode = false;
     setNotice("");
@@ -609,21 +618,24 @@ export default function Interview() {
                   </div>
                 ) : (
                   <div>
+                    {micStatus !== "granted" && (
+                      <p className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/8 px-3 py-1.5 text-xs font-semibold text-[#C9D3F2]">
+                        <MicOff size={14} /> Mode écrit : {micStatus === "denied" ? "micro non autorisé" : micStatus === "no-device" ? "aucun micro détecté" : micStatus === "busy" ? "micro occupé" : "micro indisponible"}
+                      </p>
+                    )}
                     <label htmlFor="reponse" className="mb-2 block text-sm font-semibold">Votre réponse</label>
                     <textarea id="reponse" autoFocus value={answer} onChange={(e) => setAnswer(e.target.value)} rows={4} maxLength={8000}
                       onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void submit(answer); }}
-                      placeholder="Écrivez votre réponse…"
+                      placeholder="Écrivez votre réponse comme vous la diriez à l’oral…"
                       className="w-full resize-y rounded-2xl border border-white/20 bg-white/95 p-4 text-sm leading-7 text-[#172041] outline-none focus:border-[#BA92FF] focus:ring-2 focus:ring-[#BA92FF]/30" />
                     <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                      {listenMode ? (
-                        <button type="button" onClick={switchToVoice} className="glass-dark inline-flex min-h-12 items-center gap-2 rounded-2xl px-5 text-sm font-semibold">
+                      {listenMode || micStatus === "denied" || micStatus === "busy" ? (
+                        <button type="button" onClick={() => void switchToVoice()} className="glass-dark inline-flex min-h-12 items-center gap-2 rounded-2xl px-5 text-sm font-semibold">
                           <Mic size={17} /> Répondre à l’oral
                         </button>
-                      ) : micIssue && micIssue !== "no-device" && micIssue !== "unsupported" ? (
-                        <button type="button" onClick={() => void retryMic()} className="glass-dark inline-flex min-h-12 items-center gap-2 rounded-2xl px-5 text-sm font-semibold">
-                          <Mic size={17} /> Réessayer le micro
-                        </button>
-                      ) : <span />}
+                      ) : (
+                        <span className="text-xs text-[#AEB9DA]">Ctrl + Entrée pour envoyer</span>
+                      )}
                       <button type="button" onClick={() => void submit(answer)} disabled={!answer.trim()} className="btn-gradient inline-flex min-h-12 items-center gap-2 rounded-2xl px-6 text-sm font-bold">
                         Envoyer ma réponse <Send size={17} />
                       </button>
@@ -633,7 +645,7 @@ export default function Interview() {
               </div>
             )}
 
-            {notice && <p role="status" className="mt-4 text-sm text-[#F2C9A0]">{notice}</p>}
+            {notice && <p role="status" className="mt-4 max-w-xl text-sm leading-6 text-[#F2C9A0]">{notice}</p>}
             {error && phase === "live" && (
               <p role="alert" className="mt-4 rounded-xl bg-[#FFF0ED] p-3 text-sm text-[#A64040]">
                 <AlertTriangle size={16} className="mr-2 inline" />

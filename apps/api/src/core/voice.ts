@@ -4,7 +4,7 @@
  *
  * Pour ajouter un fournisseur : implémenter `TTS` (ou `STT`) et l'ajouter dans selectTTS / selectSTT.
  */
-import type { Config } from "./config";
+import { ConfigError, type Config } from "./config";
 import type { KV } from "./kv";
 
 export type Locale = "fr" | "en";
@@ -25,7 +25,7 @@ export type PhraseName = keyof typeof PHRASES;
 export type Audio = { body: ReadableStream<Uint8Array>; contentType: string };
 
 export interface TTS {
-  readonly name: "elevenlabs" | "openai";
+  readonly name: "piper" | "elevenlabs" | "openai";
   readonly cacheKey: string;
   synthesize(text: string, locale: Locale): Promise<Audio>;
 }
@@ -113,6 +113,41 @@ export class OpenAITTS implements TTS {
   }
 }
 
+/**
+ * Piper : synthèse locale et gratuite via le serveur HTTP officiel (piper-tts, POST /synthesize).
+ * Une voix par langue ; toute voix du catalogue PiperHub peut être ajoutée au serveur.
+ */
+export class PiperTTS implements TTS {
+  readonly name = "piper" as const;
+  readonly cacheKey: string;
+  constructor(
+    private baseUrl: string,
+    private voices: Record<Locale, string>,
+    private lengthScale?: number,
+  ) {
+    this.cacheKey = `piper:${voices.fr}:${voices.en}:${lengthScale ?? "defaut"}`;
+  }
+
+  voiceFor(locale: Locale) {
+    return this.voices[locale];
+  }
+
+  async synthesize(text: string, locale: Locale): Promise<Audio> {
+    const r = await fetch(`${this.baseUrl.replace(/\/$/, "")}/synthesize`, {
+      method: "POST",
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text,
+        voice: this.voices[locale],
+        ...(this.lengthScale ? { length_scale: this.lengthScale } : {}),
+      }),
+    });
+    if (!r.ok || !r.body) throw await upstreamError("Piper", r);
+    return { body: r.body, contentType: "audio/wav" };
+  }
+}
+
 /** Transcription compatible OpenAI (Groq et OpenAI exposent la même API). */
 export class WhisperSTT implements STT {
   constructor(
@@ -155,12 +190,17 @@ export function selectVoice(c: Config): VoiceSetup {
   let ttsMode: VoiceSetup["ttsMode"] = "browser";
   const want = c.TTS_PROVIDER;
 
-  if (want === "elevenlabs" || (want === "auto" && c.ELEVENLABS_API_KEY)) {
-    if (!c.ELEVENLABS_API_KEY) throw new Error("TTS_PROVIDER=elevenlabs nécessite ELEVENLABS_API_KEY");
+  if (want === "piper") {
+    if (!c.PIPER_URL) throw new ConfigError("TTS_PROVIDER=piper nécessite PIPER_URL (ex. http://localhost:5000)");
+    tts = new PiperTTS(c.PIPER_URL, { fr: c.PIPER_VOICE_FR, en: c.PIPER_VOICE_EN }, c.PIPER_LENGTH_SCALE);
+  } else if (want === "elevenlabs" || (want === "auto" && c.ELEVENLABS_API_KEY)) {
+    if (!c.ELEVENLABS_API_KEY) throw new ConfigError("TTS_PROVIDER=elevenlabs nécessite ELEVENLABS_API_KEY");
     tts = new ElevenLabsTTS(c.ELEVENLABS_API_KEY, c.ELEVENLABS_VOICE_ID, c.ELEVENLABS_MODEL, c.ELEVENLABS_BASE_URL);
   } else if (want === "openai" || (want === "auto" && c.OPENAI_API_KEY)) {
-    if (!c.OPENAI_API_KEY) throw new Error("TTS_PROVIDER=openai nécessite OPENAI_API_KEY");
+    if (!c.OPENAI_API_KEY) throw new ConfigError("TTS_PROVIDER=openai nécessite OPENAI_API_KEY");
     tts = new OpenAITTS(c.OPENAI_API_KEY, c.OPENAI_TTS_MODEL, c.OPENAI_TTS_VOICE, c.OPENAI_BASE_URL);
+  } else if (want === "auto" && c.PIPER_URL) {
+    tts = new PiperTTS(c.PIPER_URL, { fr: c.PIPER_VOICE_FR, en: c.PIPER_VOICE_EN }, c.PIPER_LENGTH_SCALE);
   } else if (want === "none") {
     ttsMode = "none";
   }
@@ -169,7 +209,7 @@ export function selectVoice(c: Config): VoiceSetup {
   // ---- Transcription ----
   let stt: STT | null = null;
   if (c.STT_PROVIDER === "openai") {
-    if (!c.OPENAI_API_KEY) throw new Error("STT_PROVIDER=openai nécessite OPENAI_API_KEY");
+    if (!c.OPENAI_API_KEY) throw new ConfigError("STT_PROVIDER=openai nécessite OPENAI_API_KEY");
     stt = new WhisperSTT("openai", c.OPENAI_API_KEY, c.OPENAI_BASE_URL, c.STT_MODEL ?? "whisper-1");
   } else if (c.STT_PROVIDER === "groq" || c.STT_PROVIDER === "auto") {
     stt = new WhisperSTT("groq", c.GROQ_API_KEY, c.GROQ_BASE_URL, c.STT_MODEL ?? "whisper-large-v3-turbo");
@@ -198,17 +238,24 @@ function fromBase64(b64: string) {
   return out;
 }
 
-const MAX_CACHED_BYTES = 600_000;
+// Le WAV de Piper pèse plus lourd que le MP3 : environ 45 Ko par seconde de parole.
+const MAX_CACHED_BYTES = 900_000;
 
-export async function synthesizeCached(tts: TTS, kv: KV, text: string, locale: Locale): Promise<Uint8Array<ArrayBuffer> | Audio> {
+export type CachedAudio = { bytes: Uint8Array<ArrayBuffer>; contentType: string };
+
+export async function synthesizeCached(tts: TTS, kv: KV, text: string, locale: Locale): Promise<CachedAudio> {
   const key = `tts:${await sha256(`${tts.cacheKey}|${locale}|${text}`)}`;
   const hit = await kv.get(key).catch(() => null);
-  if (hit) return fromBase64(hit);
+  // Format stocké : "<type mime>|<base64>"
+  if (hit) {
+    const sep = hit.indexOf("|");
+    return { contentType: hit.slice(0, sep), bytes: fromBase64(hit.slice(sep + 1)) };
+  }
 
   const audio = await tts.synthesize(text, locale);
   const bytes = new Uint8Array(await new Response(audio.body).arrayBuffer());
   if (bytes.length <= MAX_CACHED_BYTES) {
-    await kv.set(key, toBase64(bytes), { exSeconds: 30 * 24 * 3600 }).catch(() => {});
+    await kv.set(key, `${audio.contentType}|${toBase64(bytes)}`, { exSeconds: 30 * 24 * 3600 }).catch(() => {});
   }
-  return bytes;
+  return { bytes, contentType: audio.contentType };
 }

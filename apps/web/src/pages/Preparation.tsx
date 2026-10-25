@@ -1,17 +1,24 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { ArrowLeft, ArrowRight, BriefcaseBusiness, Check, CirclePlay, Clock3, Code2, Languages, Mic, Pencil, Play, Target, Volume2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, BriefcaseBusiness, Check, CirclePlay, Clock3, Code2, Keyboard, Languages, Mic, Pencil, Play, Target, Volume2 } from "lucide-react";
 import { CandidateShell } from "../components/CandidateShell";
 import { api } from "../lib/api";
 import { DURATIONS, OBJECTIVES, QUESTIONS_BY_DURATION, TYPES, cn } from "../lib/labels";
 import { configStore, profileStore } from "../lib/storage";
-import { micIssueMessage } from "../lib/voice";
 import { listener, speaker } from "../lib/voice-instance";
+import { hasAudioInput } from "../lib/voice";
 import type { Duration, InterviewType, Locale, Objective, VoiceConfig } from "../lib/types";
 
 const card = "panel panel-strong rounded-[28px] p-6 sm:p-9";
-const PROVIDERS: Record<string, string> = { elevenlabs: "ElevenLabs", openai: "OpenAI", groq: "Whisper (Groq)" };
+const PROVIDERS: Record<string, string> = { piper: "Piper", elevenlabs: "ElevenLabs", openai: "OpenAI", groq: "Whisper (Groq)" };
+
+/** « fr_FR-siwis-medium » → « Siwis » ; un nom de voix personnalisée est affiché tel quel. */
+function piperVoiceName(id: string) {
+  const m = id.match(/^[a-z]{2,3}_[A-Z]{2}-(.+)-(x_low|low|medium|high)$/);
+  const name = (m ? m[1]! : id).replace(/[_-]+/g, " ");
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
 
 export default function Preparation() {
   const navigate = useNavigate();
@@ -28,11 +35,13 @@ export default function Preparation() {
   const [duree, setDuree] = useState<Duration>(previous?.duree ?? 20);
   const [voice, setVoice] = useState<VoiceConfig | null>(null);
   const [launching, setLaunching] = useState(false);
-  const [micNotice, setMicNotice] = useState("");
+  // null : inconnu (certains navigateurs ne listent les micros qu'après autorisation).
+  const [hasMic, setHasMic] = useState<boolean | null>(null);
   const currentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     api.voiceConfig().then(setVoice).catch(() => setVoice(null));
+    void hasAudioInput().then(setHasMic);
   }, []);
   useEffect(() => {
     if (step > 0 && !reduced) currentRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -61,18 +70,19 @@ export default function Preparation() {
     setLaunching(true);
     // Ce clic débloque la lecture audio et demande le micro une seule fois, avant l'entretien.
     speaker.unlock();
-    const micOk = await listener.prepare();
+    // Sans micro, inutile de demander l'autorisation : l'entretien se fera par écrit.
+    if (hasMic !== false) await listener.prepare();
     configStore.set({ type, poste: poste.trim(), description: description.trim(), locale, objectifs, experience: profile!.experience, duree });
-    if (!micOk) {
-      setMicNotice(`${micIssueMessage(listener.issue)} Vous pourrez répondre par écrit.`);
-      setTimeout(() => navigate("/entretien"), 2200);
-      return;
-    }
     navigate("/entretien");
   }
 
+  const piperVoice = voice?.tts.provider === "piper" && voice.tts.voices ? piperVoiceName(voice.tts.voices[locale]) : null;
   const voiceLabel =
-    voice?.tts.mode === "server" ? `Voix ${PROVIDERS[voice.tts.provider ?? ""] ?? voice.tts.provider}` : voice?.tts.mode === "none" ? "Sans voix (texte uniquement)" : "Voix du navigateur";
+    voice?.tts.mode === "server"
+      ? `Voix ${PROVIDERS[voice.tts.provider ?? ""] ?? voice.tts.provider}${piperVoice ? ` : ${piperVoice}` : ""}`
+      : voice?.tts.mode === "none"
+        ? "Sans voix (texte uniquement)"
+        : "Voix du navigateur";
   const earLabel = voice?.stt.mode === "server" ? `Écoute par ${PROVIDERS[voice.stt.provider ?? ""] ?? voice.stt.provider}` : "Reconnaissance vocale du navigateur";
 
   return (
@@ -228,12 +238,17 @@ export default function Preparation() {
                 </dl>
                 <div className="mt-5 flex flex-wrap gap-2 text-xs font-semibold text-[#4E5E86]">
                   <span className="inline-flex items-center gap-2 rounded-full bg-[#EEF1FF] px-3 py-2"><Volume2 size={14} /> {voice ? voiceLabel : "Vérification de la voix…"}</span>
-                  <span className="inline-flex items-center gap-2 rounded-full bg-[#EEF1FF] px-3 py-2"><Mic size={14} /> {voice ? earLabel : "Vérification du micro…"}</span>
+                  {hasMic === false ? (
+                    <span className="inline-flex items-center gap-2 rounded-full bg-[#FFF3E6] px-3 py-2 text-[#8A5A1F]"><Keyboard size={14} /> Aucun micro détecté : réponses par écrit</span>
+                  ) : (
+                    <span className="inline-flex items-center gap-2 rounded-full bg-[#EEF1FF] px-3 py-2"><Mic size={14} /> {voice ? earLabel : "Vérification du micro…"}</span>
+                  )}
                 </div>
                 <p className="mt-5 rounded-xl border border-[#DBE3F1] bg-[#F6F8FC] p-4 text-sm leading-6 text-[#586A88]">
-                  Lina parle, puis vous répondez à voix haute. Quand vous marquez une pause d’environ deux secondes, votre réponse est envoyée automatiquement. Vous pouvez aussi répondre par écrit à tout moment.
+                  {hasMic === false
+                    ? "Aucun micro n’est branché sur cet appareil : Lina vous posera ses questions à voix haute et vous répondrez par écrit. Si vous branchez un micro pendant l’entretien, vous pourrez passer à l’oral."
+                    : "Lina parle, puis vous répondez à voix haute. Quand vous marquez une pause d’environ deux secondes, votre réponse est envoyée automatiquement. Sans micro, ou si vous préférez, vous pouvez répondre par écrit."}
                 </p>
-                {micNotice && <p role="status" className="mt-4 rounded-xl bg-[#FFF5E8] p-3 text-sm text-[#8A5A1F]">{micNotice}</p>}
                 <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
                   <button type="button" onClick={() => { setComplete(false); setStep(2); }} className="btn-soft inline-flex min-h-12 items-center gap-2 rounded-2xl px-5 text-sm font-semibold">
                     <Pencil size={16} /> Modifier mes choix

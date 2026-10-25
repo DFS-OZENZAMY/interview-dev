@@ -7,7 +7,7 @@ import { InterviewService, SessionDoneError } from "./interview";
 import type { KV } from "./kv";
 import { GroqLLM, type LLM } from "./llm";
 import { SessionBusyError, SessionNotFoundError, SessionStore } from "./sessions";
-import { PHRASES, selectVoice, synthesizeCached, VoiceProviderError, type Audio, type Locale, type VoiceSetup } from "./voice";
+import { PHRASES, PiperTTS, selectVoice, synthesizeCached, VoiceProviderError, type Audio, type CachedAudio, type Locale, type VoiceSetup } from "./voice";
 
 /** Ce que chaque plateforme fournit à l'application. */
 export type AppDeps = {
@@ -51,11 +51,11 @@ const answerSchema = z.object({
   answer: z.string().trim().min(1).max(8000),
 });
 
-function audioResponse(audio: Uint8Array | Audio, cacheControl: string) {
-  const isBytes = audio instanceof Uint8Array;
-  return new Response(isBytes ? (audio as Uint8Array<ArrayBuffer>) : audio.body, {
+function audioResponse(audio: CachedAudio | Audio, cacheControl: string) {
+  const isBytes = "bytes" in audio;
+  return new Response(isBytes ? audio.bytes : audio.body, {
     headers: {
-      "Content-Type": isBytes ? "audio/mpeg" : audio.contentType,
+      "Content-Type": audio.contentType,
       "Cache-Control": cacheControl,
       "X-Content-Type-Options": "nosniff",
     },
@@ -111,7 +111,12 @@ export function createApp({ config, kv, getClientIp, llm, voice }: AppDeps) {
 
   app.get("/voice/config", (c) =>
     c.json({
-      tts: { mode: voiceSetup.ttsMode, provider: voiceSetup.tts?.name ?? null },
+      tts: {
+        mode: voiceSetup.ttsMode,
+        provider: voiceSetup.tts?.name ?? null,
+        // Nom des voix Piper utilisées (affiché dans la préparation).
+        voices: voiceSetup.tts instanceof PiperTTS ? { fr: voiceSetup.tts.voiceFor("fr"), en: voiceSetup.tts.voiceFor("en") } : null,
+      },
       stt: { mode: voiceSetup.sttMode, provider: voiceSetup.stt?.name ?? null },
       phrases: PHRASES,
       maxQuestions: config.TOTAL_QUESTIONS,

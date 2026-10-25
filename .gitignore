@@ -5,3 +5,7 @@ dist
 .netlify
 .vercel
 .dev.vars
+
+# Voix Piper téléchargées (lourdes)
+apps/piper/voices/*.onnx
+apps/piper/voices/*.onnx.json

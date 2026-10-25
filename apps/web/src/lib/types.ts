@@ -59,7 +59,7 @@ export type HistoryEntry = {
 };
 
 export type VoiceConfig = {
-  tts: { mode: "server" | "browser" | "none"; provider: string | null };
+  tts: { mode: "server" | "browser" | "none"; provider: string | null; voices?: Record<Locale, string> | null };
   stt: { mode: "server" | "browser"; provider: string | null };
   phrases: Record<"intro" | "closing", Record<Locale, string[]>>;
   maxQuestions: number;

@@ -13,7 +13,7 @@ Il décrit le code tel qu'il est dans `apps/api` et `apps/web` (état du dépôt
 | Le message qui force Lina à poser une question | `prompts/lina-relance.*.md` | `pnpm prompts` |
 | La façon dont le **rapport** est noté et rédigé | `prompts/evaluateur.md`, `evaluateur-entree.md` | `pnpm prompts` |
 | Le modèle d'IA, le fournisseur, les délais | `.env` (`GROQ_*`, `LLM_TIMEOUT_MS`) | redémarrer l'API |
-| La **voix** de Lina (fournisseur, voix, modèle) | `.env` (`TTS_*`, `ELEVENLABS_*`, `OPENAI_*`) | redémarrer l'API |
+| La **voix** de Lina (fournisseur, voix, modèle) | `.env` (`TTS_*`, `PIPER_*`, `ELEVENLABS_*`, `OPENAI_*`) | redémarrer l'API (et Piper si ses voix changent) |
 | La transcription de la voix du candidat | `.env` (`STT_PROVIDER`, `STT_MODEL`) | redémarrer l'API |
 | Les phrases d'accueil et de fin prononcées | `apps/api/src/core/voice.ts` (`PHRASES`) | redémarrer l'API |
 | Le nombre de questions, la durée | `.env` (`TOTAL_QUESTIONS`) + `apps/web/src/lib/labels.ts` | redémarrer l'API, rebuild du front |
@@ -142,16 +142,18 @@ Variables dans `.env` (la référence complète est `apps/api/src/core/config.ts
 
 | `TTS_PROVIDER` | Comportement |
 |---|---|
-| `auto` (défaut) | ElevenLabs si `ELEVENLABS_API_KEY`, sinon OpenAI si `OPENAI_API_KEY`, sinon voix du navigateur |
+| `piper` (valeur du `.env.example`) | Voix locales et gratuites du catalogue [PiperHub](https://piperhub.org), servies par `apps/piper`. Exige `PIPER_URL` |
+| `auto` (défaut si la variable est absente) | ElevenLabs si `ELEVENLABS_API_KEY`, sinon OpenAI si `OPENAI_API_KEY`, sinon Piper si `PIPER_URL`, sinon voix du navigateur |
 | `elevenlabs` | Exige `ELEVENLABS_API_KEY` |
 | `openai` | Exige `OPENAI_API_KEY` |
 | `browser` | Voix du navigateur (gratuit, qualité variable) |
 | `none` | Pas de voix |
 
+Réglages Piper : `PIPER_VOICE_FR` (défaut `fr_FR-siwis-medium`, voix féminine), `PIPER_VOICE_EN` (défaut `en_US-hfc_female-medium`, voix féminine), `PIPER_LENGTH_SCALE` (débit). Ajout de voix PiperHub et hébergement : voir [VOIX.md](VOIX.md).
 Réglages ElevenLabs : `ELEVENLABS_VOICE_ID` (la voix), `ELEVENLABS_MODEL` (défaut `eleven_flash_v2_5`, rapide et économique).
 Réglages OpenAI : `OPENAI_TTS_MODEL` (défaut `gpt-4o-mini-tts`), `OPENAI_TTS_VOICE` (défaut `coral`), `OPENAI_BASE_URL` (serveur compatible, par exemple auto-hébergé).
 
-**Changer la voix** : modifier `ELEVENLABS_VOICE_ID` ou `OPENAI_TTS_VOICE`, puis réécouter les phrases d'accueil. Les phrases fixes sont **mises en cache 30 jours** ; la clé de cache inclut le fournisseur, la voix, le modèle, la langue et le texte : changer l'un d'eux régénère automatiquement l'audio, sans vider quoi que ce soit.
+**Changer la voix** : modifier `PIPER_VOICE_FR` / `PIPER_VOICE_EN`, `ELEVENLABS_VOICE_ID` ou `OPENAI_TTS_VOICE`, puis réécouter les phrases d'accueil. Les phrases fixes sont **mises en cache 30 jours** ; la clé de cache inclut le fournisseur, la voix, le modèle, la langue et le texte : changer l'un d'eux régénère automatiquement l'audio, sans vider quoi que ce soit.
 
 ### 5.2 Modifier les phrases fixes
 

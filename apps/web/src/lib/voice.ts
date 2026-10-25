@@ -225,7 +225,26 @@ export class Speaker {
 
 // ---------------------------------------------------------------------------
 
-export type ListenResult = { audio?: Blob; text?: string; cancelled?: boolean };
+/** micError : le micro a cessé de fonctionner pendant l'écoute (débranché, refusé…). */
+export type ListenResult = { audio?: Blob; text?: string; cancelled?: boolean; micError?: boolean };
+
+/**
+ * granted : micro utilisable. no-device : aucun micro sur l'appareil (poste fixe par exemple).
+ * denied : le candidat ou le navigateur a refusé l'accès. busy : micro pris par une autre application.
+ * unsupported : navigateur sans accès micro, ou page servie sans HTTPS.
+ */
+export type MicStatus = "unknown" | "granted" | "no-device" | "denied" | "busy" | "unsupported";
+
+/** Indique sans demander d'autorisation si l'appareil possède une entrée audio (null si on ne peut pas savoir). */
+export async function hasAudioInput(): Promise<boolean | null> {
+  try {
+    if (!navigator.mediaDevices?.enumerateDevices) return null;
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return devices.some((d) => d.kind === "audioinput");
+  } catch {
+    return null;
+  }
+}
 
 export type ListenOptions = {
   mode: "server" | "browser";
@@ -240,77 +259,58 @@ const SILENCE_MS = 1900;
 const MIN_SPEECH_MS = 600;
 const MAX_TURN_MS = 3 * 60_000;
 
-export type MicIssue = "unsupported" | "no-device" | "denied" | "busy" | "error";
-
-export function micIssueFrom(e: unknown): MicIssue {
-  switch ((e as { name?: string } | null)?.name) {
-    case "NotFoundError":
-      return "no-device";
-    case "NotAllowedError":
-    case "SecurityError":
-      return "denied";
-    case "NotReadableError":
-    case "AbortError":
-      return "busy";
-    default:
-      return "error";
-  }
-}
-
-export function micIssueMessage(issue: MicIssue | null): string {
-  switch (issue) {
-    case "unsupported":
-      return "Le micro n’est pas disponible sur cette page (navigateur ou connexion non sécurisée).";
-    case "no-device":
-      return "Aucun micro n’a été détecté sur cet appareil.";
-    case "denied":
-      return "L’accès au micro est refusé.";
-    case "busy":
-      return "Le micro est utilisé par une autre application.";
-    default:
-      return "Le micro est inaccessible.";
-  }
-}
-
 export class Listener {
-  /** Dernier problème rencontré en demandant le micro (null si tout va bien). */
-  issue: MicIssue | null = null;
   private stream: MediaStream | null = null;
   private analyser: AnalyserNode | null = null;
   private buf: Float32Array<ArrayBuffer> | null = null;
-  private current: { stop: (submit: boolean) => void } | null = null;
+  private current: { stop: (submit: boolean, micError?: boolean) => void } | null = null;
   private lastLevel = 0;
+
+  status: MicStatus = "unknown";
 
   get ready() {
     return Boolean(this.stream);
   }
 
   /** Demande l'accès au micro une seule fois pour toute la séance. */
-  async prepare(): Promise<boolean> {
-    if (this.stream) return true;
-    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-      this.issue = "unsupported";
-      return false;
-    }
+  async prepare(): Promise<MicStatus> {
+    if (this.stream) return (this.status = "granted");
+    if (!navigator.mediaDevices?.getUserMedia) return (this.status = "unsupported");
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
-      const ctx = audioContext();
-      if (ctx) {
-        void ctx.resume().catch(() => {});
-        const src = ctx.createMediaStreamSource(this.stream);
-        this.analyser = ctx.createAnalyser();
-        this.analyser.fftSize = 1024;
-        src.connect(this.analyser); // pas de sortie : on n'entend pas son propre micro
-        this.buf = new Float32Array(this.analyser.fftSize);
-      }
-      this.issue = null;
-      return true;
     } catch (e) {
-      this.issue = micIssueFrom(e);
-      return false;
+      const name = e instanceof DOMException ? e.name : "";
+      this.status =
+        name === "NotFoundError" || name === "OverconstrainedError"
+          ? "no-device"
+          : name === "NotAllowedError" || name === "SecurityError"
+            ? "denied"
+            : name === "NotReadableError" || name === "AbortError"
+              ? "busy"
+              : "unsupported";
+      return this.status;
     }
+    // Micro débranché en cours de séance : on le signale pour basculer à l'écrit.
+    this.stream.getAudioTracks().forEach((t) =>
+      t.addEventListener("ended", () => {
+        this.stream = null;
+        this.analyser = null;
+        this.status = "no-device";
+        this.current?.stop(false, true);
+      }),
+    );
+    const ctx = audioContext();
+    if (ctx) {
+      void ctx.resume().catch(() => {});
+      const src = ctx.createMediaStreamSource(this.stream);
+      this.analyser = ctx.createAnalyser();
+      this.analyser.fftSize = 1024;
+      src.connect(this.analyser); // pas de sortie : on n'entend pas son propre micro
+      this.buf = new Float32Array(this.analyser.fftSize);
+    }
+    return (this.status = "granted");
   }
 
   level() {
@@ -344,6 +344,7 @@ export class Listener {
     this.stream?.getTracks().forEach((t) => t.stop());
     this.stream = null;
     this.analyser = null;
+    this.status = "unknown";
   }
 
   /**
@@ -394,22 +395,31 @@ export class Listener {
       const recorder = new MediaRecorder(this.stream!, mime ? { mimeType: mime } : undefined);
       const chunks: Blob[] = [];
       let submit = false;
+      let micError = false;
+      recorder.onerror = () => this.current?.stop(false, true);
       recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
       const detector = this.vad(opts, () => this.current?.stop(true));
       recorder.onstop = () => {
         detector.stop();
         this.current = null;
         this.lastLevel = 0;
+        if (micError) return resolve({ micError: true });
         if (!submit || !detector.hasSpeech() || !chunks.length) return resolve({ cancelled: !submit });
         resolve({ audio: new Blob(chunks, { type: recorder.mimeType || mime || "audio/webm" }) });
       };
       this.current = {
-        stop: (s) => {
+        stop: (s, err) => {
           submit = s;
+          micError = Boolean(err);
           if (recorder.state !== "inactive") recorder.stop();
+          else recorder.onstop?.(new Event("stop"));
         },
       };
-      recorder.start(250);
+      try {
+        recorder.start(250);
+      } catch {
+        this.current.stop(false, true);
+      }
     });
   }
 
@@ -424,6 +434,7 @@ export class Listener {
       let interim = "";
       let stopped = false;
       let submit = false;
+      let micError = false;
       let silenceTimer: ReturnType<typeof setTimeout> | null = null;
       const detector = this.stream ? this.vad({ ...opts, autoStop: false }, () => {}) : null;
       const text = () => `${finalText} ${interim}`.replace(/\s+/g, " ").trim();
@@ -432,6 +443,7 @@ export class Listener {
         detector?.stop();
         this.current = null;
         this.lastLevel = 0;
+        if (micError) return resolve({ micError: true });
         resolve(submit && text() ? { text: text() } : { cancelled: !submit });
       };
       rec.onresult = (e) => {
@@ -462,12 +474,18 @@ export class Listener {
       };
       rec.onerror = (e) => {
         if (e.error === "no-speech" || e.error === "aborted") return;
+        // Pas de micro, accès refusé : on prévient l'entretien pour passer à l'écrit.
+        if (e.error === "audio-capture" || e.error === "not-allowed" || e.error === "service-not-allowed") {
+          micError = true;
+          this.status = e.error === "audio-capture" ? "no-device" : "denied";
+        }
         stopped = true;
       };
       this.current = {
-        stop: (s) => {
+        stop: (s, err) => {
           submit = s;
           stopped = true;
+          if (err) micError = true;
           try {
             rec.stop();
           } catch {

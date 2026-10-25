@@ -32,8 +32,16 @@ const schema = z.object({
   CORS_ORIGINS: z.string().optional(),
 
   // ---- Voix de Lina (synthèse vocale) ----
-  // auto : ElevenLabs si ELEVENLABS_API_KEY, sinon OpenAI si OPENAI_API_KEY, sinon voix du navigateur.
-  TTS_PROVIDER: z.enum(["auto", "elevenlabs", "openai", "browser", "none"]).default("auto"),
+  // auto : ElevenLabs si ELEVENLABS_API_KEY, sinon OpenAI si OPENAI_API_KEY,
+  // sinon Piper si PIPER_URL, sinon voix du navigateur.
+  TTS_PROVIDER: z.enum(["auto", "piper", "elevenlabs", "openai", "browser", "none"]).default("auto"),
+  // Piper : voix locales et gratuites (catalogue : https://piperhub.org), servies par apps/piper.
+  PIPER_URL: z.url().optional(),
+  // Voix féminines par défaut : Siwis (français) et HFC Female (anglais), modèles officiels Piper.
+  PIPER_VOICE_FR: z.string().regex(/^[\w.-]+$/).default("fr_FR-siwis-medium"),
+  PIPER_VOICE_EN: z.string().regex(/^[\w.-]+$/).default("en_US-hfc_female-medium"),
+  // Débit de parole : 1 = normal, plus grand = plus lent (ex. 1.1 pour un ton plus posé).
+  PIPER_LENGTH_SCALE: z.coerce.number().min(0.5).max(2).optional(),
   ELEVENLABS_API_KEY: z.string().optional(),
   ELEVENLABS_VOICE_ID: z.string().default("21m00Tcm4TlvDq8ikWAM"),
   ELEVENLABS_MODEL: z.string().default("eleven_flash_v2_5"),

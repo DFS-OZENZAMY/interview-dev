@@ -9,11 +9,37 @@ services:
         required: false
     environment:
       REDIS_URL: redis://redis:6379
+      # Voix de Lina par Piper (gratuit). Une clé ElevenLabs ou OpenAI dans .env reste prioritaire en mode auto.
+      PIPER_URL: http://piper:5000
     ports:
       - "${API_PORT:-3000}:3000"
     depends_on:
       redis:
         condition: service_healthy
+      piper:
+        condition: service_healthy
+
+  # Synthèse vocale locale et gratuite (voix du catalogue https://piperhub.org)
+  piper:
+    build:
+      context: ./apps/piper
+      args:
+        # Voix officielles téléchargées à la construction (ajoutez-en séparées par un espace)
+        PIPER_VOICES: ${PIPER_VOICES:-fr_FR-siwis-medium en_US-hfc_female-medium}
+    container_name: interview-piper
+    restart: unless-stopped
+    environment:
+      PIPER_DEFAULT_VOICE: ${PIPER_VOICE_FR:-fr_FR-siwis-medium}
+    ports:
+      - "127.0.0.1:5000:5000"
+    volumes:
+      # Voix PiperHub ajoutées à la main (.onnx + .onnx.json)
+      - ./apps/piper/voices:/voices/custom:ro
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/voices', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
 
   db:
     image: postgres:16
