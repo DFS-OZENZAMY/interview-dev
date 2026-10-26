@@ -1,5 +1,5 @@
 export type Msg = { role: "system" | "user" | "assistant"; content: string };
-export type ChatOpts = { maxTokens?: number; json?: boolean };
+export type ChatOpts = { maxTokens?: number; json?: boolean; temperature?: number };
 
 export interface LLM {
   chat(messages: Msg[], opts?: ChatOpts): Promise<string>;
@@ -35,6 +35,7 @@ export class GroqLLM implements LLM {
             max_tokens: opts.maxTokens ?? 800,
             reasoning_effort: "low",
             ...(opts.json ? { response_format: { type: "json_object" } } : {}),
+            ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
           }),
         });
 

@@ -11,7 +11,7 @@
     "build:lambda": "node scripts/build-prompts.mjs --check && esbuild --bundle --platform=node --target=node20 --format=cjs --log-level=warning src/entries/lambda.ts --outfile=dist/lambda/index.js",
     "dev:worker": "npx wrangler dev",
     "deploy:worker": "npx wrangler deploy",
-    "test": "tsx --test src/core/prompts/prompts.test.ts src/core/core.test.ts",
+    "test": "tsx --test src/core/prompts/prompts.test.ts src/core/core.test.ts src/core/academy/academy.test.ts",
     "typecheck": "node scripts/build-prompts.mjs --check && tsc --noEmit"
   },
   "keywords": [],

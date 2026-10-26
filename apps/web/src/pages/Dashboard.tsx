@@ -150,6 +150,9 @@ export default function Dashboard() {
               <p className="mt-3 text-xs leading-6 text-[#626D8A]">
                 {lastReport?.conseils[0] ?? "Lina analysera vos réponses pour identifier vos points forts et les compétences à développer."}
               </p>
+              <Link to="/academie" className="mt-4 inline-flex items-center gap-1.5 text-xs font-bold text-[#6B47C9] hover:underline">
+                S’entraîner dans l’Académie <ArrowRight size={14} />
+              </Link>
             </div>
           </motion.section>
           <motion.section {...enter(0.2)} className="panel rounded-[26px] p-6">

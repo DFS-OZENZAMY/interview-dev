@@ -14,6 +14,7 @@ Le parcours candidat et le design reprennent ceux d'[ai-interview-platform](http
 - **Retour question par question** : chaque question avec la réponse donnée, ce qui fonctionne, ce qu'il faut travailler et une formulation plus percutante.
 - **Export PDF** du bilan, lisible à l'impression.
 - **Progression** : courbe des scores et moyenne par critère dans le tableau de bord, avec l'historique des séances (enregistrés dans le navigateur, sans compte).
+- **Académie** : un coach conversationnel qui conseille et propose des programmes d'exercices, 288 exercices guidés avec retour du coach, et 48 parcours conseillés selon le profil et le dernier bilan. Reprise du travail d'Achraf SILA, voir **[docs/ACADEMIE.md](docs/ACADEMIE.md)**.
 
 ## Structure
 
@@ -24,6 +25,7 @@ apps/
     scripts/        build-prompts.mjs : convertit prompts/*.md en code TypeScript typé
     src/core/       logique commune : entretien, voix, stockage (uniquement fetch)
     src/core/prompts/  moteur de gabarits, tests et fichier généré
+    src/core/academy/  Académie : coach, diagnostic, recherche, contenu (exercices, guides, parcours)
     src/node/       Redis TCP et démarrage pour les runtimes Node
     src/entries/    node.ts (serveur), lambda.ts, worker.ts
     src/index.ts    point d'entrée Vercel
@@ -33,6 +35,7 @@ apps/
 .github/workflows/ci.yml   vérifications automatiques à chaque push
 docs/
   VOIX.md              guide complet de la voix et du micro
+  ACADEMIE.md          l'Académie : coach, exercices, parcours
   CONFIGURER-LINA.md   personnaliser le comportement et les questions de Lina
 ```
 
@@ -162,7 +165,7 @@ Si l'API est sur un autre domaine que le front :
 ## Tests et intégration continue
 
 ```bash
-cd apps/api && pnpm test        # parcours d'entretien, bilan, voix, stockage, HTTP, prompts
+cd apps/api && pnpm test        # entretien, bilan, voix, stockage, HTTP, prompts, Académie
 ```
 
 Les tests n'appellent aucun service externe : le modèle, la voix et le stockage sont simulés.
@@ -203,6 +206,8 @@ En production (`NODE_ENV=production`), l'API refuse de démarrer sans Redis plut
 
 `GET /interview/:id` : état de l'entretien et bilan s'il existe.
 
-Si `API_KEY` est définie, chaque appel à `/interview/*` et `/voice/phrase/*` doit envoyer l'en-tête `x-api-key` : à réserver aux appels serveur à serveur, le front web ne l'envoie pas.
+`GET /academy/catalog`, `GET /academy/exercises/:id`, `POST /academy/coach`, `POST /academy/feedback` : l'Académie (détails dans [docs/ACADEMIE.md](docs/ACADEMIE.md)).
+
+Si `API_KEY` est définie, chaque appel à `/interview/*`, `/academy/*` et `/voice/phrase/*` doit envoyer l'en-tête `x-api-key` : à réserver aux appels serveur à serveur, le front web ne l'envoie pas.
 
 Codes d'erreur : 400 (entrée invalide), 401 (clé d'API), 404 (session introuvable ou expirée), 409 (réponse déjà en cours, ou entretien terminé), 413 (audio trop volumineux), 429 (trop de requêtes), 502 (service vocal indisponible).

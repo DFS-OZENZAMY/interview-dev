@@ -9,6 +9,8 @@ On peut le modifier sans toucher au code de l'application.
 | `lina-relance.fr.md`, `lina-relance.en.md` | Rappel envoyé quand Lina oublie de poser une question |
 | `evaluateur.md` | Instructions de l'évaluateur (rapport final, réponse JSON) |
 | `evaluateur-entree.md` | Gabarit du message qui contient le transcript |
+| `academy-coach.md` | Coach de l'Académie : répondre, préciser ou recommander (réponse JSON) |
+| `academy-retour.md` | Retour formatif sur une réponse d'exercice de l'Académie (réponse JSON) |
 
 ## Syntaxe
 

@@ -13,7 +13,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let r: Response;
   try {
     r = await fetch(API_BASE + path, init);

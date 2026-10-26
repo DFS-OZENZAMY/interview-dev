@@ -9,6 +9,9 @@ const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Preparation = lazy(() => import("./pages/Preparation"));
 const Interview = lazy(() => import("./pages/Interview"));
 const Report = lazy(() => import("./pages/Report"));
+const Academy = lazy(() => import("./pages/Academy"));
+const AcademyExercise = lazy(() => import("./pages/AcademyExercise"));
+const AcademyPaths = lazy(() => import("./pages/AcademyPaths"));
 
 export default function App() {
   return (
@@ -22,6 +25,9 @@ export default function App() {
           <Route path="/preparation" element={<Preparation />} />
           <Route path="/entretien" element={<Interview />} />
           <Route path="/rapport/:id" element={<Report />} />
+          <Route path="/academie" element={<Academy />} />
+          <Route path="/academie/exercices/:id" element={<AcademyExercise />} />
+          <Route path="/academie/parcours" element={<AcademyPaths />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
-import { ArrowLeft, Check, Download, Lightbulb, RotateCcw, Sparkles, Target } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Download, Lightbulb, RotateCcw, Sparkles, Target } from "lucide-react";
 import { ScoreGauge } from "../components/ScoreGauge";
 import { QuestionReview } from "../components/QuestionReview";
 import { api } from "../lib/api";
@@ -162,6 +162,9 @@ export default function ReportPage() {
                       <div className="mt-6 rounded-[25px] border border-[#9BD9EC]/25 bg-white/[.09] p-5 sm:p-7">
                         <h3 className="text-xl font-semibold">{focus.name}</h3>
                         <p className="mt-2 max-w-2xl text-sm leading-7 text-[#D8E6F7]">{focus.detail}</p>
+                        <Link to="/academie/parcours" className="no-print glass-dark mt-4 inline-flex min-h-11 items-center gap-2 rounded-2xl px-4 text-sm font-semibold">
+                          S’entraîner dans l’Académie <ArrowRight size={16} />
+                        </Link>
                       </div>
                     </div>
                   </section>
