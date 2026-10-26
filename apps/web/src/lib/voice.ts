@@ -184,15 +184,24 @@ export class Speaker {
       u.pitch = 1.05;
       this.active = "synth";
       let done = false;
+      // Certains navigateurs (Chrome sous Linux sans voix, postes verrouillés) ne signalent jamais
+      // le début ni la fin de la lecture : l'entretien ne doit pas rester bloqué pour autant.
+      const noStart = setTimeout(() => finish("ended"), 2000);
+      const tooLong = setTimeout(() => finish("ended"), 4000 + text.length * 90);
       const finish = (r: SpeakResult) => {
         if (done) return;
         done = true;
+        clearTimeout(noStart);
+        clearTimeout(tooLong);
         this.active = null;
         this.settle = null;
         resolve(r);
       };
       this.settle = finish;
-      u.onstart = () => onStart?.();
+      u.onstart = () => {
+        clearTimeout(noStart);
+        onStart?.();
+      };
       u.onboundary = () => (this.synthPulse = 0.35);
       u.onend = () => finish("ended");
       u.onerror = (e) => finish(e.error === "not-allowed" ? "blocked" : "ended");
