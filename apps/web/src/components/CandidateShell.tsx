@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { NavLink } from "react-router";
-import { ChevronRight, CirclePlay, GraduationCap, LayoutDashboard, Mic, UserRound } from "lucide-react";
+import { ChevronRight, CirclePlay, Drama, GraduationCap, LayoutDashboard, Mic, UserRound } from "lucide-react";
 import { Logo } from "./Logo";
 import { LightAmbient } from "./LightAmbient";
 import { cn } from "../lib/labels";
@@ -8,6 +8,7 @@ import { cn } from "../lib/labels";
 const NAV = [
   { to: "/tableau-de-bord", label: "Vue d’ensemble", icon: LayoutDashboard },
   { to: "/preparation", label: "Simulation", icon: CirclePlay },
+  { to: "/jeux-de-role", label: "Jeux de rôle", icon: Drama },
   { to: "/academie", label: "Académie", icon: GraduationCap },
   { to: "/profil", label: "Mon profil", icon: UserRound },
 ];

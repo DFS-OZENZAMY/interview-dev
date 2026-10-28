@@ -48,7 +48,8 @@ function rms(analyser: AnalyserNode, buf: Float32Array<ArrayBuffer>) {
 const SILENT_MP3 =
   "data:audio/mpeg;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQxAADB8AhSmxhIIEVCSiJrDCQBTcu3UrAIwUdkRgQbFAZC1CQEwTJ9mjRvBA4UOLD8nKVOWfh+UlK3z/177OXrfOdKl7pyn3Xf//WreyTRUoAWgBgkOAGbZHBgG1OF6zM82DWbZaUmMBptgQhGjsyYqc9ae9XFz280948NMBWInljyzsNRFLPWdnZGWrddDsjK1unuSrVN9jJsK8KuQtQCtMBjCEtImISdNKJOopIpBFpNSMbIHCSRpRR5iakjTiyzLhchUUBwCgyKiweBv/7UsQbg8isVNoMPMjAAAA0gAAABEVFGmgqK////9bP/6XCykxBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq";
 
-export type SpeakResult = "ended" | "stopped" | "blocked";
+/** silent : la voix n'a jamais démarré (navigateur sans voix, service muet) ; l'entretien continue à l'écrit. */
+export type SpeakResult = "ended" | "stopped" | "blocked" | "silent";
 
 export class Speaker {
   private audio: HTMLAudioElement | null = null;
@@ -186,7 +187,7 @@ export class Speaker {
       let done = false;
       // Certains navigateurs (Chrome sous Linux sans voix, postes verrouillés) ne signalent jamais
       // le début ni la fin de la lecture : l'entretien ne doit pas rester bloqué pour autant.
-      const noStart = setTimeout(() => finish("ended"), 2000);
+      const noStart = setTimeout(() => finish("silent"), 2000);
       const tooLong = setTimeout(() => finish("ended"), 4000 + text.length * 90);
       const finish = (r: SpeakResult) => {
         if (done) return;

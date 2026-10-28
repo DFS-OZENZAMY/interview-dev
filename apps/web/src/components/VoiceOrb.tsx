@@ -47,7 +47,7 @@ void main(){
 const stateHue: Record<OrbState, number> = { ready: 0, speaking: 0, listening: 95, thinking: 35, paused: -40, done: 85, error: -95 };
 
 /** `level` est lu à chaque image : il peut suivre en direct la voix de Lina ou le micro. */
-export function VoiceOrb({ state = "ready", level, className = "" }: { state?: OrbState; level?: () => number; className?: string }) {
+export function VoiceOrb({ state = "ready", level, className = "", light = false }: { state?: OrbState; level?: () => number; className?: string; light?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const stateRef = useRef(state);
   const levelRef = useRef(level);
@@ -128,7 +128,7 @@ export function VoiceOrb({ state = "ready", level, className = "" }: { state?: O
     <div
       ref={ref}
       aria-hidden="true"
-      className={`relative h-full w-full overflow-hidden rounded-full bg-[radial-gradient(circle,rgba(83,101,255,.16)_0%,transparent_70%)] data-[fallback=true]:bg-[radial-gradient(circle_at_36%_29%,#E7D2FF_2%,#B4A1FF_33%,#6D6CF5_65%,#E56FDD_100%)] ${className}`}
+      className={`relative h-full w-full overflow-hidden rounded-full ${light ? "bg-[radial-gradient(circle,#F1E9FD_0%,#F8F5FF_51%,transparent_73%)]" : "bg-[radial-gradient(circle,rgba(83,101,255,.16)_0%,transparent_70%)]"} data-[fallback=true]:bg-[radial-gradient(circle_at_36%_29%,#E7D2FF_2%,#B4A1FF_33%,#6D6CF5_65%,#E56FDD_100%)] ${className}`}
     />
   );
 }

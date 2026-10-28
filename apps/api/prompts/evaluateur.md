@@ -16,5 +16,11 @@ Ajoute aussi un retour pour CHAQUE question posée par Lina, dans l'ordre du tra
 - « exemple » : une meilleure formulation possible, à l'oral, en deux phrases au plus, qui reprend ce que le candidat a dit sans inventer de faits sur son parcours.
 Si le candidat n'a pas répondu à une question, indique-le dans « a_ameliorer » et laisse « ce_qui_va » vide.
 
+Relève enfin, au plus 6, les preuves de compétences observables dans les réponses du candidat (« preuves ») :
+- « competence » : la compétence illustrée, en quelques mots (ex. « priorisation », « travail en équipe ») ;
+- « reponse » : le numéro de la réponse dans le transcript, en commençant à 0 pour la première réponse du candidat ;
+- « citation » : un extrait COPIÉ MOT POUR MOT de cette réponse (8 à 240 caractères), sans le reformuler ni le corriger.
+Une citation qui ne figure pas exactement dans la réponse sera rejetée. N'invente aucune preuve : une liste vide vaut mieux qu'une preuve douteuse.
+
 Réponds UNIQUEMENT avec un objet JSON de cette forme :
-{"scores":{"clarte":0,"pertinence":0,"exemples_concrets":0,"structure":0,"motivation":0},"points_forts":["..."],"points_faibles":["..."],"conseils":["..."],"resume":"...","par_question":[{"question":"...","ce_qui_va":"...","a_ameliorer":"...","exemple":"..."}]}
+{"scores":{"clarte":0,"pertinence":0,"exemples_concrets":0,"structure":0,"motivation":0},"points_forts":["..."],"points_faibles":["..."],"conseils":["..."],"resume":"...","par_question":[{"question":"...","ce_qui_va":"...","a_ameliorer":"...","exemple":"..."}],"preuves":[{"competence":"...","reponse":0,"citation":"..."}]}

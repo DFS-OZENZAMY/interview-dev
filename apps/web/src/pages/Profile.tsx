@@ -34,7 +34,7 @@ export default function ProfilePage() {
       objectifs,
       createdAt: saved?.createdAt ?? Date.now(),
     });
-    navigate("/tableau-de-bord");
+    navigate(saved ? "/tableau-de-bord" : "/demarrer");
   }
 
   const toggle = (o: Objective) =>

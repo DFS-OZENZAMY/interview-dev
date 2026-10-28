@@ -7,6 +7,7 @@ import { api } from "../lib/api";
 import { DURATIONS, OBJECTIVES, QUESTIONS_BY_DURATION, TYPES, cn } from "../lib/labels";
 import { configStore, profileStore } from "../lib/storage";
 import { listener, speaker } from "../lib/voice-instance";
+import { roleplayDraft } from "../lib/roleplay";
 import { hasAudioInput } from "../lib/voice";
 import type { Duration, InterviewType, Locale, Objective, VoiceConfig } from "../lib/types";
 
@@ -29,13 +30,20 @@ export default function Preparation() {
   const reduced = useReducedMotion();
   const profile = profileStore.get();
   const previous = configStore.get();
-  const [step, setStep] = useState(0);
+  // Scénario choisi dans les jeux de rôle, ou poste transmis par un lien (bilan, Académie).
+  const [scenario] = useState(() => roleplayDraft.take());
+  const [params] = useState(() => new URLSearchParams(window.location.search));
+  const linkedType = params.get("type") === "technique" ? "technique" : params.get("type") === "rh" ? "rh" : null;
+  const linkedPoste = (params.get("poste") ?? "").replace(/[<>{}`\n\r]/g, "").slice(0, 100);
+  const [step, setStep] = useState(scenario ? 1 : 0);
   const [complete, setComplete] = useState(false);
-  const [type, setType] = useState<InterviewType | null>(previous?.type ?? null);
-  const [poste, setPoste] = useState(previous?.poste ?? "");
-  const [description, setDescription] = useState(previous?.description ?? "");
+  const [type, setType] = useState<InterviewType | null>(scenario?.type ?? linkedType ?? previous?.type ?? null);
+  const [poste, setPoste] = useState(scenario ? scenario.poste : linkedPoste || previous?.poste || "");
+  const [description, setDescription] = useState(
+    scenario ? `${scenario.contexte}${scenario.persona ? `\nInterlocuteur : ${scenario.persona}.` : ""}` : previous?.description ?? "",
+  );
   const [locale, setLocale] = useState<Locale>(previous?.locale ?? profile?.locale ?? "fr");
-  const [objectifs, setObjectifs] = useState<Objective[]>(previous?.objectifs ?? profile?.objectifs ?? []);
+  const [objectifs, setObjectifs] = useState<Objective[]>(scenario?.objectifs.length ? scenario.objectifs : previous?.objectifs ?? profile?.objectifs ?? []);
   const [duree, setDuree] = useState<Duration>(previous?.duree ?? 20);
   const [voice, setVoice] = useState<VoiceConfig | null>(null);
   const [launching, setLaunching] = useState(false);
@@ -111,6 +119,20 @@ export default function Preparation() {
           </div>
         </div>
 
+        {scenario && (
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#C9C0F9] bg-[#F0ECFF] px-5 py-4">
+            <div>
+              <p className="text-[11px] font-bold text-[#7853DB]">Scénario sélectionné</p>
+              <p className="mt-1 text-sm font-bold">{scenario.title} · {scenario.persona}</p>
+            </div>
+            <Link to="/jeux-de-role" className="text-xs font-bold text-[#654FC5] hover:underline">Changer de scénario</Link>
+          </div>
+        )}
+        {!scenario && !previous && step === 0 && (
+          <p className="mb-4 text-sm text-[#5B6887]">
+            Envie d’un cadre tout prêt ? <Link to="/jeux-de-role" className="font-bold text-[#405AB7] hover:underline">Choisissez un jeu de rôle</Link>.
+          </p>
+        )}
         <div className="space-y-3">
           {Array.from({ length: complete ? 3 : step }, (_, i) => (
             <motion.div layout key={i} initial={reduced ? false : { opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }}

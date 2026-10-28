@@ -43,6 +43,12 @@ export default function ReportPage() {
 
   const report = entry && isReport(entry.report) ? entry.report : null;
   const focus = report ? FOCUS[weakestKey(report)] : null;
+  // Passerelle bilan → Académie, et nouvel entretien sur le même poste (repris d'ai-interview-platform).
+  const academyHref = entry
+    ? `/academie?source=entretien&focus=${encodeURIComponent(report ? weakestKey(report) : "")}&poste=${encodeURIComponent(entry.poste.slice(0, 100))}`
+    : "/academie";
+  const retryHref = entry ? `/preparation?poste=${encodeURIComponent(entry.poste.slice(0, 100))}&type=${entry.type}` : "/preparation";
+  const answered = report?.echanges?.filter((e) => e.reponse && e.reponse.trim()).length ?? 0;
 
   return (
     <main className="report-page on-dark relative min-h-dvh overflow-hidden bg-night px-4 pb-16 pt-8 text-white sm:px-8 sm:pt-12">
@@ -154,6 +160,30 @@ export default function ReportPage() {
 
                 <QuestionReview report={report} />
 
+                {report.preuves && report.preuves.length > 0 && (
+                  <section aria-labelledby="preuves" className="print-card rise mt-5 rounded-[28px] border border-white/15 bg-white/[.06] p-6 sm:p-7" style={{ animationDelay: ".39s" }}>
+                    <h2 id="preuves" className="text-lg font-semibold">Ce que vos réponses montrent</h2>
+                    <p className="mt-1 text-xs leading-5 text-[#AEB9DA]">Chaque extrait est cité mot pour mot depuis vos réponses. Ce sont vos déclarations : elles ne prouvent pas à elles seules une compétence maîtrisée.</p>
+                    <ul className="mt-4 grid gap-3 md:grid-cols-2">
+                      {report.preuves.map((p, i) => (
+                        <li key={i} className="print-card rounded-2xl border border-white/12 bg-white/[.04] p-4">
+                          <p className="text-xs font-bold text-[#BFA7FF]">{p.competence} · réponse {p.reponse + 1}</p>
+                          <p className="mt-2 text-sm italic leading-7 text-[#E5EAFE]">« {p.citation} »</p>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+
+                {answered > 0 && (
+                  <section aria-label="Traçabilité des réponses" className="print-card rise mt-5 rounded-[25px] border border-white/15 bg-white/[.06] p-6" style={{ animationDelay: ".4s" }}>
+                    <h2 className="text-lg font-semibold">Votre bilan, fondé sur les échanges</h2>
+                    <p className="mt-2 text-sm leading-7 text-[#D3DDF4]">
+                      {answered} réponse{answered > 1 ? "s" : ""} transcrite{answered > 1 ? "s" : ""} fonde{answered > 1 ? "nt" : ""} cette analyse. Ces déclarations alimentent une revue par compétence, mais ne constituent pas à elles seules un score ou une maîtrise démontrée.
+                    </p>
+                  </section>
+                )}
+
                 {focus && (
                   <section aria-labelledby="suite" className="rise relative mt-7 overflow-hidden rounded-[30px] border border-[#BAA6FE]/25 bg-gradient-to-br from-[#252657]/90 via-[#1B2751]/95 to-[#14354D]/90 p-6 shadow-[0_24px_70px_#060B2966] sm:p-9" style={{ animationDelay: ".4s" }}>
                     <div aria-hidden="true" className="blob -right-20 -top-28 size-72 bg-[#BA82FF]/15 blur-[85px]" />
@@ -162,7 +192,7 @@ export default function ReportPage() {
                       <div className="mt-6 rounded-[25px] border border-[#9BD9EC]/25 bg-white/[.09] p-5 sm:p-7">
                         <h3 className="text-xl font-semibold">{focus.name}</h3>
                         <p className="mt-2 max-w-2xl text-sm leading-7 text-[#D8E6F7]">{focus.detail}</p>
-                        <Link to="/academie/parcours" className="no-print glass-dark mt-4 inline-flex min-h-11 items-center gap-2 rounded-2xl px-4 text-sm font-semibold">
+                        <Link to={academyHref} className="no-print glass-dark mt-4 inline-flex min-h-11 items-center gap-2 rounded-2xl px-4 text-sm font-semibold">
                           S’entraîner dans l’Académie <ArrowRight size={16} />
                         </Link>
                       </div>
@@ -173,7 +203,7 @@ export default function ReportPage() {
             )}
 
             <nav aria-label="Après l’entretien" className="no-print rise mt-9 flex flex-col gap-3 sm:flex-row sm:justify-center" style={{ animationDelay: ".45s" }}>
-              <Link to="/preparation" className="btn-gradient inline-flex min-h-13 items-center justify-center gap-3 rounded-2xl px-7 py-4 text-sm font-bold">
+              <Link to={retryHref} className="btn-gradient inline-flex min-h-13 items-center justify-center gap-3 rounded-2xl px-7 py-4 text-sm font-bold">
                 Refaire un entretien <RotateCcw size={17} />
               </Link>
               <Link to="/tableau-de-bord" className="glass-dark inline-flex min-h-13 items-center justify-center gap-3 rounded-2xl px-7 py-4 text-sm font-semibold">

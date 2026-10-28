@@ -39,12 +39,42 @@ const reportSchema = z.object({
     )
     .max(30)
     .default([]),
+  // Preuves citées par le modèle : vérifiées mot pour mot ensuite (voir verifyEvidence).
+  preuves: z
+    .array(z.object({ competence: z.string(), reponse: z.coerce.number().int(), citation: z.string() }).partial())
+    .max(20)
+    .default([]),
 });
 
 /** Question de Lina et réponse du candidat, reconstituées depuis la session (pas par le modèle). */
 export type Exchange = { question: string; reponse: string | null };
 
-export type Report = z.infer<typeof reportSchema> & { score_global: number; echanges: Exchange[] };
+/** Preuve de compétence dont la citation a été retrouvée telle quelle dans la réponse du candidat. */
+export type Evidence = { competence: string; reponse: number; citation: string; statut: "declaration_non_verifiee" };
+
+export type Report = Omit<z.infer<typeof reportSchema>, "preuves"> & { score_global: number; echanges: Exchange[]; preuves: Evidence[] };
+
+/**
+ * Contrôle déterministe des citations (repris d'ai-interview-platform, « verified quotes ») :
+ * une preuve n'est gardée que si sa citation figure mot pour mot dans la réponse indiquée.
+ * Ce sont des déclarations du candidat, pas des compétences démontrées.
+ */
+export function verifyEvidence(raw: unknown, exchanges: Exchange[]): Evidence[] {
+  if (!Array.isArray(raw)) return [];
+  const answers = exchanges.map((e) => e.reponse ?? "");
+  const out: Evidence[] = [];
+  for (const item of raw.slice(0, 12)) {
+    if (!item || typeof item !== "object") continue;
+    const { competence, reponse, citation } = item as { competence?: unknown; reponse?: unknown; citation?: unknown };
+    if (typeof competence !== "string" || !competence.trim() || competence.length > 80) continue;
+    if (typeof reponse !== "number" || !Number.isInteger(reponse) || reponse < 0 || reponse >= answers.length) continue;
+    if (typeof citation !== "string" || citation.trim().length < 8 || citation.length > 240) continue;
+    if (!answers[reponse]!.includes(citation.trim())) continue;
+    if (out.some((o) => o.competence === competence.trim() && o.reponse === reponse)) continue;
+    out.push({ competence: competence.trim(), reponse, citation: citation.trim(), statut: "declaration_non_verifiee" });
+  }
+  return out.slice(0, 6);
+}
 
 /** Paires question / réponse dans l'ordre de l'entretien (le premier message est l'ouverture). */
 export function exchangesOf(s: Session): Exchange[] {
@@ -125,7 +155,8 @@ export class InterviewService {
         if (parsed.success) {
           const values = Object.values(parsed.data.scores);
           const score_global = Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10);
-          return { ...parsed.data, score_global, echanges: exchangesOf(s) };
+          const echanges = exchangesOf(s);
+          return { ...parsed.data, score_global, echanges, preuves: verifyEvidence(parsed.data.preuves, echanges) };
         }
         console.error("Rapport invalide :", parsed.error.issues);
       } catch (e) {

@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createApp } from "./app";
 import { loadConfig } from "./config";
-import { InterviewService, exchangesOf } from "./interview";
+import { InterviewService, exchangesOf, verifyEvidence } from "./interview";
 import { MemoryKV } from "./kv";
 import type { LLM, Msg } from "./llm";
 import { SessionBusyError, SessionStore } from "./sessions";
@@ -226,4 +226,58 @@ test("HTTP : clé d'API exigée quand API_KEY est définie", async () => {
   assert.equal((await a.request("/interview/start", post({ poste: "Dev" }))).status, 401);
   const ok = await a.request("/interview/start", { ...post({ poste: "Dev" }), headers: { "content-type": "application/json", "x-api-key": "secret" } });
   assert.equal(ok.status, 200);
+});
+
+// ---- Citations vérifiées (repris d'ai-interview-platform) ----
+
+test("preuves : seules les citations retrouvées mot pour mot sont gardées", () => {
+  const echanges = [
+    { question: "Q1 ?", reponse: "J'ai coordonné trois équipes pour livrer le projet en avance." },
+    { question: "Q2 ?", reponse: "Je priorise selon l'impact client." },
+  ];
+  const preuves = verifyEvidence(
+    [
+      { competence: "coordination", reponse: 0, citation: "J'ai coordonné trois équipes" }, // exacte : gardée
+      { competence: "leadership", reponse: 0, citation: "J'ai dirigé dix personnes" }, // inventée : rejetée
+      { competence: "priorisation", reponse: 1, citation: "Je priorise selon l'impact client" }, // exacte : gardée
+      { competence: "priorisation", reponse: 5, citation: "Je priorise selon l'impact client" }, // réponse inexistante
+      { competence: "x", reponse: 1, citation: "court" }, // trop court
+    ],
+    echanges,
+  );
+  assert.deepEqual(preuves.map((p) => p.competence), ["coordination", "priorisation"]);
+  assert.ok(preuves.every((p) => p.statut === "declaration_non_verifiee"));
+});
+
+test("preuves : un format invalide donne une liste vide", () => {
+  assert.deepEqual(verifyEvidence("pas une liste", []), []);
+  assert.deepEqual(verifyEvidence([null, 42], [{ question: "Q", reponse: "R" }]), []);
+});
+
+// ---- Jeux de rôle et Kokoro ----
+
+test("jeu de rôle : scénario créé, objectifs convertis, poste nettoyé", async () => {
+  const llm: LLM = {
+    async chat() {
+      return JSON.stringify({ title: "Entretien Data", family: "technical", jobTitle: "Data <Analyst>", context: "Startup e-commerce.", interviewPersona: "Lead data", goals: ["domain_knowledge", "answer_structure", "inconnu"], suggestedQuestions: ["Q1 ?", "Q2 ?", "Q3 ?", "Q4 ?"] });
+    },
+  };
+  const a = createApp({ config: loadConfig({ ...base, TTS_PROVIDER: "browser" }), kv: new MemoryKV(), getClientIp: () => "1", llm });
+  assert.equal((await a.request("/roleplay/scenario", post({ brief: "trop court" }))).status, 400);
+  const r = await a.request("/roleplay/scenario", post({ brief: "Je prépare un entretien de Data Analyst dans une startup e-commerce." }));
+  const body = (await r.json()) as { type: string; poste: string; objectifs: string[]; questions: string[] };
+  assert.equal(r.status, 200);
+  assert.equal(body.type, "technique");
+  assert.equal(body.poste, "Data Analyst");
+  assert.deepEqual(body.objectifs, ["connaissances", "structure"]);
+  assert.equal(body.questions.length, 3);
+});
+
+test("Kokoro : choisi seulement explicitement, voix ff_siwis et réglage naturel par défaut", () => {
+  const k = selectVoice(loadConfig({ ...base, TTS_PROVIDER: "kokoro", KOKORO_URL: "http://k:8880" })).tts;
+  assert.equal(k?.name, "kokoro");
+  assert.deepEqual(k?.voices, { fr: "ff_siwis", en: "af_heart" });
+  assert.equal(k?.cacheKey, "kokoro:ff_siwis:af_heart:0.98");
+  assert.equal(selectVoice(loadConfig({ ...base, KOKORO_URL: "http://k:8880" })).tts, null);
+  assert.throws(() => selectVoice(loadConfig({ ...base, TTS_PROVIDER: "kokoro" })), /KOKORO_URL/);
 });

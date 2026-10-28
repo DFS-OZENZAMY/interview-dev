@@ -43,6 +43,8 @@ export type Report = {
   par_question?: QuestionFeedback[];
   /** Questions de Lina et réponses du candidat, dans l'ordre. */
   echanges?: { question: string; reponse: string | null }[];
+  /** Preuves de compétences dont la citation a été retrouvée mot pour mot (déclarations non vérifiées). */
+  preuves?: { competence: string; reponse: number; citation: string; statut: string }[];
 };
 
 export type QuestionFeedback = { question: string; ce_qui_va: string; a_ameliorer: string; exemple: string };
