@@ -34,7 +34,7 @@ const schema = z.object({
   // ---- Voix de Lina (synthèse vocale) ----
   // auto : ElevenLabs si ELEVENLABS_API_KEY, sinon OpenAI si OPENAI_API_KEY,
   // sinon Piper si PIPER_URL, sinon voix du navigateur.
-  TTS_PROVIDER: z.enum(["auto", "pocket", "piper", "elevenlabs", "openai", "browser", "none"]).default("auto"),
+  TTS_PROVIDER: z.enum(["auto", "kokoro", "pocket", "piper", "elevenlabs", "openai", "browser", "none"]).default("auto"),
   // Piper : voix locales et gratuites (catalogue : https://piperhub.org), servies par apps/piper.
   PIPER_URL: z.url().optional(),
   // Voix féminines par défaut : Siwis (français) et HFC Female (anglais), modèles officiels Piper.
@@ -49,6 +49,13 @@ const schema = z.object({
   // Voix féminines par défaut du catalogue Pocket TTS : Estelle (français), Alba (anglais).
   POCKET_TTS_VOICE_FR: z.string().regex(/^[\w.:/-]+$/).default("estelle"),
   POCKET_TTS_VOICE_EN: z.string().regex(/^[\w.:/-]+$/).default("alba"),
+  // Kokoro (Kokoro-FastAPI, API compatible OpenAI) : voix évaluées par Achraf dans son laboratoire vocal.
+  // Choisi uniquement avec TTS_PROVIDER=kokoro.
+  KOKORO_URL: z.url().optional(),
+  KOKORO_VOICE_FR: z.string().regex(/^[\w+.-]+$/).default("ff_siwis"),
+  KOKORO_VOICE_EN: z.string().regex(/^[\w+.-]+$/).default("af_heart"),
+  // Réglage « naturel » retenu par Achraf (0,98) ; 1 = vitesse normale.
+  KOKORO_SPEED: z.coerce.number().min(0.5).max(2).default(0.98),
   ELEVENLABS_API_KEY: z.string().optional(),
   ELEVENLABS_VOICE_ID: z.string().default("21m00Tcm4TlvDq8ikWAM"),
   ELEVENLABS_MODEL: z.string().default("eleven_flash_v2_5"),

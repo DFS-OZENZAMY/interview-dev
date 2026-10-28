@@ -25,7 +25,7 @@ export type PhraseName = keyof typeof PHRASES;
 export type Audio = { body: ReadableStream<Uint8Array>; contentType: string };
 
 export interface TTS {
-  readonly name: "pocket" | "piper" | "elevenlabs" | "openai";
+  readonly name: "kokoro" | "pocket" | "piper" | "elevenlabs" | "openai";
   readonly cacheKey: string;
   /** Voix utilisées par langue, quand le fournisseur les expose (Piper). */
   readonly voices?: Record<Locale, string>;
@@ -38,6 +38,7 @@ export interface TTS {
 
 /** Nom lisible d'un fournisseur, pour les messages. */
 export const PROVIDER_LABEL: Record<TTS["name"], string> = {
+  kokoro: "Kokoro",
   pocket: "Pocket TTS",
   piper: "Piper",
   elevenlabs: "ElevenLabs",
@@ -256,6 +257,46 @@ export class PocketTTS implements TTS {
 }
 
 /**
+ * Kokoro (82M paramètres, licence Apache 2.0) servi par Kokoro-FastAPI : API compatible OpenAI,
+ * audio en streaming. Voix française par défaut : ff_siwis, réglage « naturel » à 0,98.
+ */
+export class KokoroTTS implements TTS {
+  readonly name = "kokoro" as const;
+  readonly cacheKey: string;
+  constructor(
+    private baseUrl: string,
+    readonly voices: Record<Locale, string>,
+    private speed: number,
+  ) {
+    this.cacheKey = `kokoro:${voices.fr}:${voices.en}:${speed}`;
+  }
+
+  get endpoint() {
+    return this.baseUrl;
+  }
+
+  async synthesize(text: string, locale: Locale): Promise<Audio> {
+    const r = await providerFetch("Kokoro", this.baseUrl, `${this.baseUrl.replace(/\/$/, "")}/v1/audio/speech`, {
+      method: "POST",
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "kokoro", input: text, voice: this.voices[locale], response_format: "mp3", speed: this.speed }),
+    });
+    if (!r.ok || !r.body) throw await upstreamError("Kokoro", r);
+    return { body: r.body, contentType: "audio/mpeg" };
+  }
+
+  async probe() {
+    try {
+      const r = await fetch(`${this.baseUrl.replace(/\/$/, "")}/v1/audio/voices`, { signal: AbortSignal.timeout(3_000) });
+      return r.ok;
+    } catch {
+      return false;
+    }
+  }
+}
+
+/**
  * Enveloppe un fournisseur de voix : après une panne réseau, il est mis de côté 30 secondes.
  * Pendant ce temps, l'API répond tout de suite par une erreur et le navigateur prend le relais
  * avec sa propre voix, au lieu d'attendre un délai de connexion à chaque phrase.
@@ -351,7 +392,10 @@ export function selectVoice(c: Config): VoiceSetup {
   let ttsMode: VoiceSetup["ttsMode"] = "browser";
   const want = c.TTS_PROVIDER;
 
-  if (want === "pocket") {
+  if (want === "kokoro") {
+    if (!c.KOKORO_URL) throw new ConfigError("TTS_PROVIDER=kokoro nécessite KOKORO_URL (ex. http://127.0.0.1:8880)");
+    tts = new KokoroTTS(c.KOKORO_URL, { fr: c.KOKORO_VOICE_FR, en: c.KOKORO_VOICE_EN }, c.KOKORO_SPEED);
+  } else if (want === "pocket") {
     if (!c.POCKET_TTS_URL_FR && !c.POCKET_TTS_URL_EN) {
       throw new ConfigError(
         "TTS_PROVIDER=pocket nécessite POCKET_TTS_URL_FR et/ou POCKET_TTS_URL_EN (ex. http://127.0.0.1:8001)",

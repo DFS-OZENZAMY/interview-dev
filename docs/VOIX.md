@@ -9,6 +9,7 @@ La variable `TTS_PROVIDER` choisit le moteur de synthèse :
 | Valeur | Moteur | Coût | Remarques |
 |---|---|---|---|
 | `piper` | [Piper](https://github.com/OHF-Voice/piper1-gpl), voix du catalogue [PiperHub](https://piperhub.org) | Gratuit | Tourne en local dans le service `apps/piper`. Valeur par défaut du `.env.example`. |
+| `kokoro` | [Kokoro](https://github.com/remsky/Kokoro-FastAPI) via Kokoro-FastAPI | Gratuit | Voix française `ff_siwis`, comparée par Achraf dans son laboratoire vocal. Tourne en local (profil Docker `kokoro`). |
 | `pocket` | [Pocket TTS](https://github.com/kyutai-labs/pocket-tts) de Kyutai | Gratuit | Voix plus naturelles que Piper, en streaming. Tourne en local dans `apps/pocket-tts` (plus lourd). |
 | `elevenlabs` | [ElevenLabs](https://elevenlabs.io) | Payant | Voix les plus naturelles, diffusées en streaming. |
 | `openai` | OpenAI, ou tout service compatible (`OPENAI_BASE_URL`) | Payant | Le modèle `gpt-4o-mini-tts` reçoit des consignes de ton. |
@@ -152,6 +153,26 @@ Kyutai interdit de cloner la voix d'une personne sans son accord explicite. N'ut
 ### Héberger Pocket TTS en production
 
 Comme Piper, chaque conteneur se déploie sur une plateforme à conteneurs (Cloud Run, Fly.io, Render, ECS, un VPS…). Prévoyez 2 cœurs et environ 1 Go de mémoire par langue. Indiquez les adresses dans `POCKET_TTS_URL_FR` et `POCKET_TTS_URL_EN`, et gardez ces services sur un réseau privé : ils n'ont pas d'authentification.
+
+## Kokoro
+
+Achraf a comparé, dans son laboratoire vocal, la voix du navigateur et la voix française **`ff_siwis`** de Kokoro (un modèle de 82 millions de paramètres, licence Apache 2.0). Il a retenu le réglage « naturel » : vitesse **0,98**. La plateforme reprend ces choix par défaut.
+
+Kokoro est servi par [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI), qui expose une API compatible OpenAI. L'image utilisée est figée en version `v0.9.0`.
+
+1. Dans le `.env` :
+
+   ```
+   TTS_PROVIDER=kokoro
+   KOKORO_URL=http://127.0.0.1:8880
+   ```
+
+2. Lancer le service (profil `kokoro`, non lancé par défaut) : `docker compose --profile kokoro up -d`. Au premier démarrage, le modèle se télécharge.
+3. Redémarrer l'API (`docker compose up -d api`, ou relancer `pnpm dev`).
+
+Réglages : `KOKORO_VOICE_FR` (défaut `ff_siwis`), `KOKORO_VOICE_EN` (défaut `af_heart`), `KOKORO_SPEED` (défaut `0.98`). Comme pour Pocket TTS, Kokoro n'est jamais choisi en mode `auto`.
+
+Achraf a aussi testé une prononciation « manageur » pour le mot « manager ». Il la signale comme non validée : elle n'est pas appliquée.
 
 ## ElevenLabs
 

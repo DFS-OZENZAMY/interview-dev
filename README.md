@@ -14,7 +14,11 @@ Le parcours candidat et le design reprennent ceux d'[ai-interview-platform](http
 - **Retour question par question** : chaque question avec la réponse donnée, ce qui fonctionne, ce qu'il faut travailler et une formulation plus percutante.
 - **Export PDF** du bilan, lisible à l'impression.
 - **Progression** : courbe des scores et moyenne par critère dans le tableau de bord, avec l'historique des séances (enregistrés dans le navigateur, sans compte).
-- **Académie** : un coach conversationnel qui conseille et propose des programmes d'exercices, 288 exercices guidés avec retour du coach, et 48 parcours conseillés selon le profil et le dernier bilan. Reprise du travail d'Achraf SILA, voir **[docs/ACADEMIE.md](docs/ACADEMIE.md)**.
+- **Académie** : un coach conversationnel qui conseille, mène des **études de cas interactives** (cas HRBP rédigé, cas générés pour les autres métiers, retour sur chaque réponse) et propose des programmes d'exercices ; 288 exercices guidés avec retour du coach, et 48 parcours conseillés selon le profil et le dernier bilan. Voir **[docs/ACADEMIE.md](docs/ACADEMIE.md)**.
+- **Jeux de rôle** : 4 scénarios prêts à l'emploi, un catalogue de 34 métiers et la création d'un scénario par l'IA à partir d'une description ; la préparation est ensuite préremplie.
+- **Bilan traçable** : les preuves de compétences citent mot pour mot les réponses du candidat (les citations inexactes sont rejetées), et le bilan mène vers l'Académie ou vers un nouvel entretien sur le même poste.
+
+L'Académie, les jeux de rôle, le design clair de l'entretien et les preuves vérifiées reprennent le travail d'Achraf SILA sur [ai-interview-platform](https://github.com/Achrafsila/ai-interview-platform), adapté à cette architecture (sans compte ni base de données).
 
 ## Structure
 
@@ -83,7 +87,7 @@ Par défaut, Lina parle avec **Piper**, un moteur de synthèse vocale libre et g
 Le fournisseur se change dans le `.env`, sans toucher au code :
 
 ```
-TTS_PROVIDER=piper          # piper, pocket, elevenlabs, openai, browser, none ou auto
+TTS_PROVIDER=piper          # piper, pocket, kokoro, elevenlabs, openai, browser, none ou auto
 PIPER_VOICE_FR=fr_FR-siwis-medium
 ```
 
@@ -91,6 +95,7 @@ PIPER_VOICE_FR=fr_FR-siwis-medium
 |---|---|---|---|
 | **Piper** (défaut) | Gratuit, local | Léger, démarre partout | `TTS_PROVIDER=piper` |
 | **Pocket TTS** (Kyutai) | Gratuit, local | Voix plus naturelles, streaming (~200 ms avant le premier son), clonage de voix | `TTS_PROVIDER=pocket` et `docker compose --profile pocket up -d` |
+| **Kokoro** | Gratuit, local | Voix française `ff_siwis` évaluée par Achraf, réglage « naturel » | `TTS_PROVIDER=kokoro` et `docker compose --profile kokoro up -d` |
 | **ElevenLabs** | Payant | Voix premium | `TTS_PROVIDER=elevenlabs` et une clé |
 | **OpenAI** | Payant | Consignes de ton | `TTS_PROVIDER=openai` et une clé |
 | **Navigateur** | Gratuit | Aucun service à lancer | `TTS_PROVIDER=browser` |
@@ -207,6 +212,8 @@ En production (`NODE_ENV=production`), l'API refuse de démarrer sans Redis plut
 `GET /interview/:id` : état de l'entretien et bilan s'il existe.
 
 `GET /academy/catalog`, `GET /academy/exercises/:id`, `POST /academy/coach`, `POST /academy/feedback` : l'Académie (détails dans [docs/ACADEMIE.md](docs/ACADEMIE.md)).
+
+`POST /roleplay/scenario` avec `{ brief }` (20 à 2 000 caractères) : crée un scénario de jeu de rôle (`title`, `type`, `poste`, `contexte`, `persona`, `objectifs`, `questions`).
 
 Si `API_KEY` est définie, chaque appel à `/interview/*`, `/academy/*` et `/voice/phrase/*` doit envoyer l'en-tête `x-api-key` : à réserver aux appels serveur à serveur, le front web ne l'envoie pas.
 

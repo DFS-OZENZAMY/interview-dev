@@ -56,7 +56,8 @@ export async function checkVoice(voice: VoiceSetup, _config: Config) {
   tts.markDown();
   const label = PROVIDER_LABEL[tts.name];
   const service = tts.name === "pocket" ? "pocket-fr pocket-en" : tts.name;
-  const up = tts.name === "pocket" ? "docker compose --profile pocket up -d" : `docker compose up -d ${service}`;
+  const up =
+    tts.name === "pocket" ? "docker compose --profile pocket up -d" : tts.name === "kokoro" ? "docker compose --profile kokoro up -d" : `docker compose up -d ${service}`;
   console.warn(
     [
       `[voix] ${label} ne répond pas (${tts.endpoint ?? "adresse inconnue"}).`,

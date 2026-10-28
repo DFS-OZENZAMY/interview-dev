@@ -28,6 +28,8 @@ services:
       # Pocket TTS (profil « pocket ») : utilisé seulement avec TTS_PROVIDER=pocket
       POCKET_TTS_URL_FR: http://pocket-fr:8000
       POCKET_TTS_URL_EN: http://pocket-en:8000
+      # Kokoro (profil « kokoro ») : utilisé seulement avec TTS_PROVIDER=kokoro
+      KOKORO_URL: http://kokoro:8880
     ports:
       - "${API_PORT:-3000}:3000"
     depends_on:
@@ -88,6 +90,17 @@ services:
       HF_TOKEN: ${HF_TOKEN:-}
     ports:
       - "${DOCKER_BIND_ADDRESS:-127.0.0.1}:8002:8000"
+    cpus: 2
+
+  # Kokoro (Kokoro-FastAPI) : voix française ff_siwis, en option.
+  # Activer : TTS_PROVIDER=kokoro dans le .env, puis : docker compose --profile kokoro up -d
+  kokoro:
+    profiles: [kokoro]
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:v0.9.0
+    container_name: interview-kokoro
+    restart: unless-stopped
+    ports:
+      - "${DOCKER_BIND_ADDRESS:-127.0.0.1}:8880:8880"
     cpus: 2
 
   db:
