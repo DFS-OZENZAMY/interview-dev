@@ -12,6 +12,9 @@ import { goalContext, trackGoals } from "./goals";
 import { prepareCoachingMemory } from "./memory";
 import { searchKnowledge } from "./retrieval";
 import { synthesizeLearningNeeds, themes } from "./synthesis";
+import { routeAcademyTurn, type AcademyIntent } from "./orchestrator";
+import { createResponseContract } from "./response-contract";
+import { deriveSessionState } from "./session-state";
 
 export type Turn = { role: "user" | "assistant"; content: string };
 type Decision = {
@@ -66,7 +69,7 @@ function parseJson<T>(raw: string): T | null {
   }
 }
 
-export async function coach(llm: LLM, input: CoachInput) {
+async function coachConversation(llm: LLM, input: CoachInput, intent: AcademyIntent) {
   const history = input.messages;
   const last = history.at(-1)!;
   const saved = input.history ?? [];
@@ -82,7 +85,8 @@ export async function coach(llm: LLM, input: CoachInput) {
 
   // Une demande d'exercice explicite avec un besoin identifié se passe d'une décision du modèle.
   const normalizedTraining = plain(last.content).toLowerCase();
-  if (/exercic|entrain|simulation|atelier/.test(normalizedTraining)) {
+  // V5.1 : seule une demande d'entraînement explicite (intention « training ») déclenche les règles.
+  if (intent === "training" && /exercic|entrain|simulation|atelier/.test(normalizedTraining)) {
     const replaceGoal = SWITCH.test(normalizedTraining);
     const selected = replaceGoal ? synthesizeLearningNeeds([last.content]) : fallback;
     const scope = buildDiagnostic(history, undefined, selected.needs.map((n) => n.key), true);
@@ -224,7 +228,7 @@ export async function coach(llm: LLM, input: CoachInput) {
     if (typeof decision.reply === "string" && decision.reply.trim().length >= 25 && diagnostic.phase !== "exploration") {
       return {
         kind: "answer" as const,
-        reply: decision.reply.trim().slice(0, 800),
+        reply: decision.reply.trim().slice(0, 1800),
         question: typeof decision.question === "string" ? decision.question.slice(0, 220) : undefined,
         diagnostic,
       };
@@ -248,6 +252,200 @@ export async function coach(llm: LLM, input: CoachInput) {
       options: [],
     };
   }
+}
+
+// ---- Académie V5.1 : études de cas, entraînement ciblé, ressources (portage d'ai-interview-platform) ----
+
+const HRBP = /\bhrbp\b|hr business partner|human resources business partner/;
+const norm = (v: string) => plain(v).toLowerCase();
+
+/** Transition pédagogique : une demande déjà bien cadrée lance la pratique au lieu d'un nouveau questionnement. */
+function scopedPractice(turns: Turn[]): { reply: string; question?: string } | null {
+  const user = turns.filter((t) => t.role === "user");
+  const all = norm(user.map((t) => t.content).join(" "));
+  const last = norm(user.at(-1)?.content || "");
+  const data = /data\s*sci|datasci/.test(all);
+  const churn = /churn|attrition|resiliation/.test(all);
+  const eda = /\beda\b|analyse exploratoire/.test(all);
+  const features = /selection des variables|choix des variables|feature selection|importance/.test(all);
+  if (!(data && churn && eda && features)) return null;
+  if (/^(importance|feature importance|importance des variables)[.!? ]*$/.test(last))
+    return {
+      reply:
+        "Très bien, travaillons l’importance des variables comme dans un case study churn. Avant tout modèle, il faut vérifier que chaque variable est disponible au moment de la prédiction : une variable très prédictive peut être inutilisable si elle révèle déjà le départ du client.",
+      question:
+        "Mini-cas : vous disposez de tenure (ancienneté), monthly_charges (facturation), contract_type (contrat), support_tickets (réclamations), cancellation_date (date de résiliation) et payment_method (paiement). Quelle variable excluriez-vous immédiatement, et pourquoi ?",
+    };
+  if (/exercic|entrain|pratiqu|mise en situation|cas pratique|donne.*cas/.test(last))
+    return {
+      reply:
+        "Passons à un exercice interactif de sélection de variables pour un modèle de churn. Les variables candidates sont tenure, monthly_charges, contract_type, support_tickets, cancellation_date et payment_method. On avance en trois étapes : fuite de données, importance prédictive, puis justification business.",
+      question:
+        "Étape 1 : laquelle de ces six variables peut causer une fuite de données (*data leakage*) et pourquoi ? Répondez comme devant un recruteur ; je commenterai votre raisonnement avant l’étape suivante.",
+    };
+  return null;
+}
+
+async function caseAndPractice(llm: LLM, input: CoachInput) {
+  const history = input.messages;
+  const last = history.at(-1)!;
+  const earlier = input.history ?? [];
+  const sessionState = deriveSessionState(history.slice(0, -1));
+  const routing = routeAcademyTurn(history);
+  const latest = norm(last.content).trim();
+  const contextFromUser = norm([...earlier, ...history].filter((t) => t.role === "user").map((t) => t.content).join(" "));
+
+  // 1. Démarrer une étude de cas : cas HRBP rédigé, sinon cas généré pour le poste, sinon demander le poste.
+  if (routing.intent === "case_start" && HRBP.test(contextFromUser)) {
+    return {
+      kind: "answer" as const,
+      reply:
+        "## Cas pratique · HR Business Partner\n\n**Votre rôle :** vous êtes HRBP d'une Business Unit de 600 collaborateurs. Le directeur vous alerte : le turnover volontaire a atteint **18 % sur douze mois**, particulièrement parmi les managers intermédiaires. Il estime que les rémunérations sont la cause principale, mais aucune analyse n'a encore été réalisée.\n\n**Votre enjeu :** conduire un diagnostic crédible et recommander des actions alignées avec les priorités business. Vous êtes en réunion avec le directeur de la BU.\n\nNous avançons comme dans un entretien : une décision à la fois, avec un retour sur votre raisonnement avant de poursuivre.",
+      question: "Vous avez dix minutes pour démarrer cet échange. Quelles sont vos premières questions au directeur, et quelles données demanderiez-vous pour vérifier son hypothèse ?",
+    };
+  }
+  const precedingAssistant = [...history.slice(0, -1)].reverse().find((t) => t.role === "assistant")?.content || "";
+  const hrbpTurnoverCase =
+    /cas pratique.{0,12}hr business partner/i.test(plain(precedingAssistant)) && /turnover volontaire|premieres questions au directeur/i.test(plain(precedingAssistant));
+  const looksLikeAnswer = last.content.trim().length >= 30 && !/^(je souhaite|je veux|use case|cas pratique|etude de cas|je choisis)/i.test(latest);
+  if (hrbpTurnoverCase && looksLikeAnswer) {
+    const strengths = [
+      /salair|remuner|compensation|paie/.test(latest) ? "Vous cherchez à mesurer la rémunération réelle de cette population, plutôt que d'accepter une explication intuitive." : null,
+      /offboard|depart|sortie|exit interview/.test(latest) ? "Vous mobilisez les entretiens de départ pour recueillir les raisons déclarées des sorties." : null,
+      /benchmark|marche externe|comparaison externe/.test(latest) ? "Vous proposez une comparaison avec le marché externe pour tester la compétitivité salariale." : null,
+    ].filter((v): v is string => !!v);
+    const observed = strengths.length ? strengths : ["Vous commencez à formuler des hypothèses à vérifier auprès du business."];
+    const gaps = [
+      "Segmentez les départs par équipe, ancienneté et type de fonction : une moyenne globale peut masquer les poches de risque.",
+      "Explorez aussi les trajectoires de carrière, le management et la charge de travail avant d'attribuer le turnover à la rémunération.",
+    ];
+    return {
+      kind: "answer" as const,
+      practiceFeedback: true,
+      reply: [
+        "## Votre feedback · Diagnostic HRBP",
+        "### Les bons réflexes",
+        ...observed.map((x) => `- ${x}`),
+        "### Pour renforcer votre diagnostic",
+        ...gaps.map((x) => `- ${x}`),
+        "### Approche à présenter au directeur",
+        "Je commencerais par segmenter le turnover et confronter trois sources : données RH, retours qualitatifs des départs et comparaison au marché. Je testerais plusieurs hypothèses avant de prioriser les mesures correctives.",
+      ].join("\n\n"),
+      question:
+        "Le directeur confirme que les salaires sont alignés sur le marché, mais plusieurs entretiens de départ évoquent un manque de perspectives d'évolution. Quelle action lanceriez-vous en premier, et comment mesureriez-vous son efficacité ?",
+    };
+  }
+  if (routing.intent === "case_start") {
+    try {
+      const raw = await llm.chat(
+        [
+          { role: "system", content: renderPrompt("academyCas") },
+          { role: "user", content: contextFromUser.slice(-1400) },
+        ],
+        { json: true, maxTokens: 520, temperature: 0.25 },
+      );
+      const parsed = parseJson<{ role?: unknown; scenario?: unknown; question?: unknown }>(raw);
+      const role = typeof parsed?.role === "string" ? parsed.role.trim().slice(0, 90) : "";
+      const scenario = typeof parsed?.scenario === "string" ? parsed.scenario.trim().slice(0, 1000) : "";
+      const question = typeof parsed?.question === "string" ? parsed.question.trim().slice(0, 300) : "";
+      if (role.length >= 3 && scenario.length >= 90 && question.length >= 20 && question.includes("?")) {
+        return {
+          kind: "answer" as const,
+          reply: `## Cas pratique · ${role}\n\n${scenario}\n\nNous avançons une décision à la fois, et j'adapterai la suite à votre raisonnement.`,
+          question,
+        };
+      }
+    } catch {
+      /* le modèle ne répond pas : on demande le poste */
+    }
+    return { kind: "clarify" as const, understanding: "Je peux construire une mise en situation adaptée à votre métier.", question: "Quel poste précis préparez-vous pour cet entretien ?", options: [] };
+  }
+
+  // 2. Demande déjà cadrée : passer directement à la pratique.
+  const practice = scopedPractice([...earlier, ...history].slice(-40));
+  if (practice) return { kind: "answer" as const, ...practice };
+
+  // 3. Réponse du candidat à un exercice : évaluer sa réponse avant de proposer autre chose.
+  const inCaseStudy = routing.activeCase || sessionState.mode === "case";
+  const isPracticeAnswer =
+    (/(a vous de jouer|mini-cas|etape 1|et pourquoi|quelle action|repondez comme|votre reponse|mise en situation|quelles sont vos premieres questions|quelles donnees demanderiez)/i.test(plain(precedingAssistant)) ||
+      (inCaseStudy && precedingAssistant.trim().endsWith("?"))) &&
+    !/^(je veux|je souhaite|donne.moi|propose|passons|nouvel exercice)/i.test(last.content.trim());
+  const isScenarioSelection =
+    /^Je choisis ce scénario\s*:/i.test(last.content.trim()) ||
+    (last.content.trim().split(/\s+/).length <= 8 && !/[.!?;:]/.test(last.content) && !/\b(je|nous|j.ai|nous avons|parce que|car|afin de|ensuite|d.abord)\b/i.test(latest));
+  if ((routing.intent === "case_answer" || (isPracticeAnswer && routing.intent === "conversation")) && last.content.trim().length >= 35 && !isScenarioSelection) {
+    const candidateAnswer = last.content.trim();
+    const contextQuestion = precedingAssistant.slice(-1400);
+    try {
+      const raw = await llm.chat(
+        [
+          { role: "system", content: renderPrompt("academyCasRetour") },
+          { role: "user", content: JSON.stringify({ exercise: contextQuestion, answer: candidateAnswer }) },
+        ],
+        { json: true, maxTokens: 800, temperature: 0.2 },
+      );
+      const feedback = parseJson<{ strengths?: unknown; gaps?: unknown; improved?: unknown; nextQuestion?: unknown; skill?: unknown; needsTraining?: unknown }>(raw);
+      const safe = (v: unknown) => (typeof v === "string" ? v.trim().slice(0, 320) : "");
+      const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && x.trim().length > 3).slice(0, 2).map((x) => x.slice(0, 250)) : []);
+      const strengths = list(feedback?.strengths);
+      const gaps = list(feedback?.gaps);
+      const improved = safe(feedback?.improved);
+      const nextQuestion = safe(feedback?.nextQuestion);
+      if ((strengths.length || gaps.length) && improved) {
+        const skill = typeof feedback?.skill === "string" && validKeys.has(feedback.skill) ? feedback.skill : "";
+        let suggestedPath: null | { pathId: string; pathTitle: string; exerciseId: string; exerciseName: string } = null;
+        if (feedback?.needsTraining === true && skill && gaps.length) {
+          const selection = synthesizeLearningNeeds([contextQuestion, candidateAnswer], [skill]);
+          if (selection.steps.length) {
+            const plan = makeRecommendation(selection, "Axes d'amélioration identifiés dans une réponse d'entraînement.");
+            suggestedPath = { pathId: plan.pathId, pathTitle: plan.pathTitle, exerciseId: plan.exerciseId, exerciseName: plan.exerciseName };
+          }
+        }
+        return {
+          kind: "answer" as const,
+          reply: [
+            "## Votre feedback personnalisé",
+            strengths.length ? "### Ce qui fonctionne\n" + strengths.map((x) => `- ${x}`).join("\n") : "",
+            gaps.length ? "### À renforcer\n" + gaps.map((x) => `- ${x}`).join("\n") : "",
+            "### Exemple de réponse améliorée\n" + improved,
+          ]
+            .filter(Boolean)
+            .join("\n\n"),
+          question: nextQuestion || undefined,
+          practiceFeedback: true,
+          suggestedPath,
+        };
+      }
+    } catch {
+      /* retour indisponible : la conversation continue normalement */
+    }
+  }
+
+  // 4. Demande de ressources : jamais de titres, PDF ou liens externes inventés.
+  const asksResources =
+    /\b(supports?|ressources?|documentation|documents?|guides?|pdf|livres?|lectures?|articles?|videos?|podcasts?)\b/.test(latest) &&
+    (/\b(aider|utile|preparer|pour|avoir|proposer|disponible|trouver|conseiller|auriez|avez|as.tu|aurez|pourrais|peux.tu)\b/.test(latest) || latest.split(/\s+/).length <= 6);
+  if (routing.intent === "resources" && asksResources) {
+    const hrbp = /\bhrbp\b|hr business partner/.test(contextFromUser);
+    return {
+      kind: "answer" as const,
+      reply: hrbp
+        ? "## Supports pour préparer votre entretien HRBP\n\n### Fiches de travail disponibles dans cette conversation\n- **Fiche métier HRBP** : missions stratégiques, dialogue avec les opérationnels, mobilité, rétention et conduite du changement.\n- **Trame d'analyse d'un cas RH** : problème business, hypothèses, données à vérifier, recommandations et indicateurs.\n- **Grille d'entretien** : questions sur le partenariat business, l'influence, les indicateurs RH et le pilotage d'un plan d'action.\n\nJe peux construire ces supports de préparation avec vous et vous orienter vers les exercices du catalogue de l'Académie. Je ne prétends pas qu'il s'agit de PDF déjà publiés. Je ne cite aucun ouvrage, article ou lien externe comme vérifié sans source contrôlée."
+        : "## Supports de préparation\n\nJe peux vous aider à créer une fiche métier, une trame de case study et une grille de questions adaptées au poste préparé. Les exercices du catalogue de l'Académie peuvent compléter ce travail. Aucun PDF, ouvrage ou lien externe n'est présenté comme vérifié sans source contrôlée.",
+      question: hrbp
+        ? "Souhaitez-vous commencer par une fiche métier HRBP synthétique ou une grille de questions d'entretien ?"
+        : "Quel support souhaitez-vous construire en premier : fiche métier, trame d'étude de cas ou questions d'entretien ?",
+    };
+  }
+  return { routed: routing.intent as AcademyIntent };
+}
+
+/** Point d'entrée du coach : couche V5.1 d'abord, puis conversation ; chaque réponse porte son contrat de présentation. */
+export async function coach(llm: LLM, input: CoachInput) {
+  const early = await caseAndPractice(llm, input);
+  const result = "routed" in early ? await coachConversation(llm, input, early.routed as AcademyIntent) : early;
+  return { ...result, presentation: createResponseContract(result as Record<string, unknown>) };
 }
 
 // ---- Retour formatif sur un exercice (portage de /api/academy/feedback) ----

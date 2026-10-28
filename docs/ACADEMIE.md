@@ -22,6 +22,19 @@ Le coach reprend la logique d'Achraf, avec ses garde-fous :
 
 Les déclarations sensibles (santé, religion, opinions politiques…) ne sont jamais mémorisées, et le coach ne demande jamais de motif médical pour une interruption de carrière.
 
+## Académie V5 : études de cas et retours
+
+La version 5.1 d'Achraf ajoute une couche qui s'exécute **avant** la conversation habituelle :
+
+- **Routage déterministe** du dernier message (`orchestrator.ts`) : démarrer un cas, répondre à un cas, demander des ressources, demander un entraînement, changer de sujet, ou converser.
+- **Études de cas** : « cas pratique », « use case » ou « mise en situation » lancent un cas. Pour un HR Business Partner, le cas (turnover de 18 %) et le premier retour sont rédigés à l'avance, sans appel au modèle. Pour les autres métiers, le modèle construit un cas court adapté au poste (`prompts/academy-cas.md`) ; sans poste connu, le coach le demande.
+- **Retour sur chaque réponse** (`prompts/academy-cas-retour.md`) : ce qui fonctionne, ce qu'il faut renforcer, un exemple amélioré et une question de suite. Si une lacune le justifie, un exercice est suggéré, avec un bouton « Enregistrer pour plus tard ».
+- **Ressources** : le coach propose de construire des fiches avec le candidat, et n'invente jamais de PDF, de livre ou de lien.
+- **Plan enregistré à la demande** : une recommandation affiche « Enregistrer dans mon parcours » et s'ajoute au parcours existant sans le remplacer.
+- **Contrat de présentation** (`response-contract.ts`) : chaque réponse indique son type (éclairage, question, étude de cas, retour, parcours, ressources), affiché sous forme d'étiquette ; les réponses sont mises en forme (intertitres, listes, question finale « À vous de jouer »).
+
+Un seul écart avec le code d'origine : le routage reconnaît désormais « exercice » et « exercices » comme une demande d'entraînement. L'expression d'origine (`exercic\b`) ne les acceptait pas.
+
 ## Ce qui a été adapté
 
 | Élément | Version d'Achraf | Ici |
@@ -55,7 +68,7 @@ Après une modification : `pnpm test` dans `apps/api`. Les tests reprennent ceux
 
 `GET /academy/exercises/:id` : un exercice et son guide.
 
-`POST /academy/coach` avec `{ messages, history?, previousPlan? }` : `messages` = les derniers échanges (11 au plus, le dernier venant du candidat), `history` = la conversation enregistrée (20 au plus), `previousPlan` = les besoins du plan précédent pour une demande de continuation. Réponse : `answer`, `clarify` ou `recommend`.
+`POST /academy/coach` avec `{ messages, history?, previousPlan? }` : `messages` = les derniers échanges (11 au plus, le dernier venant du candidat, 5 000 caractères au plus), `history` = la conversation enregistrée (20 au plus), `previousPlan` = les besoins du plan précédent pour une demande de continuation. Réponse : `answer`, `clarify` ou `recommend`.
 
 `POST /academy/feedback` avec `{ exerciseId, answer }` (50 caractères au moins) : `{ strength, improvement, nextAction }`.
 

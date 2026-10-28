@@ -6,6 +6,7 @@ import type { Config } from "./config";
 import { InterviewService, SessionDoneError } from "./interview";
 import type { KV } from "./kv";
 import { GroqLLM, type LLM } from "./llm";
+import { renderPrompt } from "./prompts/render";
 import { SessionBusyError, SessionNotFoundError, SessionStore } from "./sessions";
 import { coach, exerciseFeedback, FeedbackError, UnknownExerciseError } from "./academy/coach";
 import { exercises } from "./academy/content/catalog";
@@ -64,9 +65,9 @@ const coachSchema = z
       .array(z.object({ role: z.enum(["user", "assistant"]), content: z.string() }))
       .min(1)
       .max(11)
-      // Mêmes limites que l'Académie d'origine : 700 caractères côté candidat, 2 500 côté coach.
-      .refine((list) => list.every((m) => m.content.length <= (m.role === "assistant" ? 2500 : 700)), "Message trop long"),
-    history: z.array(turnSchema(2500)).max(20).optional(),
+      // Mêmes limites que l'Académie d'origine (V5) : 5 000 caractères côté candidat, 2 500 côté coach.
+      .refine((list) => list.every((m) => m.content.length <= (m.role === "assistant" ? 2500 : 5000)), "Message trop long"),
+    history: z.array(turnSchema(5000)).max(20).optional(),
     previousPlan: z
       .object({ needs: z.array(z.string().max(40)).max(4), context: z.string().max(150).optional() })
       .optional(),
@@ -266,6 +267,53 @@ export function createApp({ config, kv, getClientIp, llm, voice }: AppDeps) {
       if (e instanceof UnknownExerciseError) return c.json({ error: "Exercice inconnu." }, 404);
       if (e instanceof FeedbackError) return c.json({ error: "L'analyse IA n'a pas pu aboutir. Réessayez plus tard." }, 502);
       throw e;
+    }
+  });
+
+  // ---- Jeux de rôle : scénario d'entretien créé par l'IA (Roleplay Studio, repris d'ai-interview-platform) ----
+
+  app.use("/roleplay/*", apiKeyAuth, rateLimit);
+
+  app.post("/roleplay/scenario", async (c) => {
+    const body = z.object({ brief: z.string().trim().min(20).max(2000) }).safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: "Décrivez le scénario en 20 à 2000 caractères." }, 400);
+    // Objectifs d'origine → objectifs de la plateforme
+    const GOALS: Record<string, string> = {
+      confidence: "confiance",
+      answer_structure: "structure",
+      communication: "communication",
+      domain_knowledge: "connaissances",
+      stress_management: "stress",
+    };
+    try {
+      const raw = await model.chat(
+        [
+          { role: "system", content: renderPrompt("jeuDeRole") },
+          { role: "user", content: body.data.brief },
+        ],
+        { json: true, maxTokens: 750, temperature: 0.35 },
+      );
+      const p = JSON.parse(raw.replace(/```json|```/g, "").trim()) as Record<string, unknown>;
+      if (!["rh", "technical"].includes(String(p.family)) || !["title", "jobTitle", "context", "interviewPersona"].every((k) => typeof p[k] === "string")) {
+        throw new Error("Format invalide");
+      }
+      return c.json(
+        {
+          title: String(p.title).slice(0, 100),
+          type: p.family === "technical" ? "technique" : "rh",
+          poste: String(p.jobTitle).replace(/[<>{}`\n\r]/g, "").slice(0, 100),
+          contexte: String(p.context).slice(0, 450),
+          persona: String(p.interviewPersona).slice(0, 100),
+          objectifs: Array.isArray(p.goals) ? [...new Set(p.goals.map((g) => GOALS[String(g)]).filter(Boolean))].slice(0, 3) : [],
+          questions: Array.isArray(p.suggestedQuestions)
+            ? p.suggestedQuestions.filter((x): x is string => typeof x === "string").slice(0, 3).map((x) => x.slice(0, 220))
+            : [],
+        },
+        200,
+        { "Cache-Control": "no-store" },
+      );
+    } catch {
+      return c.json({ error: "La génération n'a pas abouti. Réessayez." }, 502);
     }
   });
 

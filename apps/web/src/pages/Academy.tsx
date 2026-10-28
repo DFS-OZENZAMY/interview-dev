@@ -10,6 +10,14 @@ import { profileStore } from "../lib/storage";
 import { cn } from "../lib/labels";
 
 const PAGE = 9;
+/** Priorité du bilan d'entretien → domaine d'exercices (passerelle reprise d'ai-interview-platform). */
+const FOCUS_CATEGORY: Record<string, { category: string; label: string }> = {
+  clarte: { category: "communication", label: "gagner en clarté" },
+  pertinence: { category: "structure", label: "répondre au plus juste" },
+  exemples_concrets: { category: "behavior", label: "renforcer vos exemples" },
+  structure: { category: "structure", label: "structurer vos réponses" },
+  motivation: { category: "motivation", label: "exprimer votre motivation" },
+};
 const SOURCE_LABEL = { coach: "Proposé par votre coach", parcours: "Tiré de votre parcours conseillé", depart: "Un exercice pour commencer" };
 
 export default function Academy() {
@@ -23,6 +31,11 @@ export default function Academy() {
   const [planVersion, setPlanVersion] = useState(0);
   const completed = useMemo(() => new Set(academyStore.completedIds()), []);
   const profile = profileStore.get();
+  const [bridge] = useState(() => {
+    const p = new URLSearchParams(window.location.search);
+    if (p.get("source") !== "entretien") return null;
+    return { focus: FOCUS_CATEGORY[p.get("focus") ?? ""] ?? FOCUS_CATEGORY.structure!, poste: (p.get("poste") ?? "").slice(0, 100) };
+  });
 
   useEffect(() => {
     loadCatalog().then(setCatalog, (e) => setError(e instanceof ApiError ? e.message : "Le catalogue est indisponible."));
@@ -31,6 +44,7 @@ export default function Academy() {
 
   const next = useMemo(() => (catalog ? nextExercise(catalog, profile) : null), [catalog, profile, planVersion]);
   const nextEx = next && catalog?.exercises.find((e) => e.id === next.exerciseId);
+  const bridgeEx = bridge && catalog ? (catalog.exercises.find((e) => e.category === bridge.focus.category && e.level === "practice") ?? catalog.exercises.find((e) => e.category === bridge.focus.category)) : undefined;
   const categories = useMemo(
     () => (catalog ? Array.from(new Map(catalog.exercises.map((e) => [e.category, e.categoryLabel])).entries()) : []),
     [catalog],
@@ -64,8 +78,28 @@ export default function Academy() {
         </p>
       </section>
 
+      {bridge && (
+        <section aria-label="Continuité après entretien" className="mb-5 rounded-2xl border border-[#CFC5EF] bg-[#F4F0FF] p-5">
+          <p className="text-xs font-bold text-[#7051B8]">Depuis votre simulation</p>
+          <h2 className="mt-2 text-xl font-bold text-[#26345C]">Poursuivre votre préparation{bridge.poste ? ` · ${bridge.poste}` : ""}</h2>
+          <p className="mt-2 text-sm leading-6 text-[#586987]">
+            Piste pédagogique issue de votre bilan : {bridge.focus.label}. Vous pouvez la modifier librement ; elle ne constitue pas un diagnostic de compétence.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-3">
+            {bridgeEx && (
+              <Link to={`/academie/exercices/${bridgeEx.id}`} className="btn-gradient inline-flex min-h-11 items-center gap-2 rounded-2xl px-5 text-sm font-bold">
+                {bridgeEx.name} <ArrowRight size={16} />
+              </Link>
+            )}
+            <Link to={`/preparation${bridge.poste ? `?poste=${encodeURIComponent(bridge.poste)}` : ""}`} className="btn-soft inline-flex min-h-11 items-center rounded-2xl px-5 text-sm font-semibold">
+              Refaire un entretien sur ce poste
+            </Link>
+          </div>
+        </section>
+      )}
+
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(280px,.8fr)]">
-        <AcademyCoach onRecommendation={() => setPlanVersion((v) => v + 1)} />
+        <AcademyCoach onSaved={() => setPlanVersion((v) => v + 1)} />
         <div className="space-y-4">
           <section className="relative overflow-hidden rounded-[26px] border border-white/90 bg-[linear-gradient(115deg,#ECEDFF_0%,#EDE7FF_55%,#FCE6F5_100%)] p-6 shadow-[0_20px_60px_rgba(112,86,206,.14)]">
             <p className="inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-1.5 text-xs font-bold text-[#7A52D9]">

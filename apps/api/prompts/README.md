@@ -11,6 +11,9 @@ On peut le modifier sans toucher au code de l'application.
 | `evaluateur-entree.md` | Gabarit du message qui contient le transcript |
 | `academy-coach.md` | Coach de l'Académie : répondre, préciser ou recommander (réponse JSON) |
 | `academy-retour.md` | Retour formatif sur une réponse d'exercice de l'Académie (réponse JSON) |
+| `academy-cas.md` | Académie : étude de cas adaptée au poste du candidat (réponse JSON) |
+| `academy-cas-retour.md` | Académie : retour sur la réponse du candidat à une étude de cas (réponse JSON) |
+| `jeu-de-role.md` | Jeux de rôle : scénario d'entretien créé à partir de la description du candidat (réponse JSON) |
 
 ## Syntaxe
 

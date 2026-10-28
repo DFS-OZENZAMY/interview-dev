@@ -16,6 +16,9 @@ import { allowRecommendation, buildDiagnostic } from "./diagnostic";
 import { goalContext, trackGoals } from "./goals";
 import { prepareCoachingMemory } from "./memory";
 import { searchKnowledge } from "./retrieval";
+import { routeAcademyTurn } from "./orchestrator";
+import { createResponseContract } from "./response-contract";
+import { deriveSessionState } from "./session-state";
 
 type T = { role: "user" | "assistant"; content: string };
 const turns = (...messages: string[]): T[] => messages.map((content, i) => ({ role: i % 2 ? "assistant" : "user", content }));
@@ -210,5 +213,93 @@ test("HTTP : catalogue, exercice, coach et retour", async () => {
   assert.equal((await post("/academy/feedback", { exerciseId: "pitch-1-foundation", answer: "trop court" })).status, 400);
   assert.equal((await post("/academy/feedback", { exerciseId: "pitch-1-foundation", answer: "a".repeat(60) })).status, 200);
   assert.equal((await post("/academy/coach", { messages: [{ role: "assistant", content: "Bonjour" }] })).status, 400);
-  assert.equal((await post("/academy/coach", { messages: [{ role: "user", content: "x".repeat(701) }] })).status, 400);
+  assert.equal((await post("/academy/coach", { messages: [{ role: "user", content: "x".repeat(5001) }] })).status, 400);
+});
+
+// ---- Académie V5.1 : routage, état de session, contrat de présentation (tests d'Achraf) ----
+
+test("V5 routage : choisir un cas lance la mise en situation", () =>
+  assert.equal(routeAcademyTurn([u("Je prépare HRBP"), a("Quel aspect ?"), u("use case")]).intent, "case_start"));
+test("V5 routage : une réponse reste dans le cas même si elle parle de salaire ou de management", () =>
+  assert.equal(routeAcademyTurn([u("use case"), a("## Cas pratique · HR Business Partner\n\nQuelle action lanceriez-vous ?"), u("Je propose une négociation et un pilote de mobilité sur six mois.")]).intent, "case_answer"));
+test("V5 routage : une demande de ressources change d'intention", () =>
+  assert.equal(routeAcademyTurn([u("use case"), a("## Cas pratique · HRBP\n\nQuelle action ?"), u("Avez-vous des supports pour préparer ce sujet ?")]).intent, "resources"));
+test("V5 routage : un changement de sujet explicite quitte l'exercice", () =>
+  assert.equal(routeAcademyTurn([u("use case"), a("## Cas pratique · HRBP\n\nQuelle action ?"), u("Changeons de sujet")]).intent, "switch"));
+test("V5 routage : une discussion normale ne déclenche pas de recommandation", () =>
+  assert.equal(routeAcademyTurn([u("Je prépare un entretien HRBP")]).intent, "conversation"));
+test("V5 routage : « je veux un exercice » est une demande d'entraînement", () =>
+  assert.equal(routeAcademyTurn([u("Je veux un exercice pour structurer mes réponses")]).intent, "training"));
+test("V5 contrat : une réponse de cas a sa présentation dédiée", () =>
+  assert.equal(createResponseContract({ kind: "answer", reply: "## Cas pratique · HRBP", question: "Votre décision ?" }).view, "case"));
+test("V5 contrat : un retour garde l'action « poursuivre »", () =>
+  assert.deepEqual(createResponseContract({ kind: "answer", reply: "Très bien", practiceFeedback: true }).actions.map((x) => x.type), ["continue"]));
+test("V5 contrat : une recommandation propose d'enregistrer, sans écrire d'elle-même", () =>
+  assert.deepEqual(createResponseContract({ kind: "recommend", reason: "Exercice conseillé" }).actions.map((x) => x.type), ["save"]));
+test("V5 contrat : une clarification a la présentation « question »", () =>
+  assert.equal(createResponseContract({ kind: "clarify", question: "Quel poste préparez-vous ?" }).view, "question"));
+test("V5 session : un cas démarre et mémorise la question en cours", () => {
+  const state = deriveSessionState([u("Je prépare HRBP"), u("use case"), a("## Cas pratique · HR Business Partner\n\nQuelle action lanceriez-vous ?")]);
+  assert.equal(state.mode, "case");
+  assert.equal(state.step, 1);
+  assert.equal(state.role, "HRBP");
+  assert.match(state.lastQuestion || "", /Quelle action/);
+});
+test("V5 session : les exercices en plusieurs tours avancent", () => {
+  const state = deriveSessionState([a("## Cas pratique · HR Business Partner\n\nQuelles données ?"), u("Je chercherais les données RH pertinentes."), a("Votre feedback\n\nQuelle action maintenant ?")]);
+  assert.equal(state.mode, "case");
+  assert.equal(state.step, 2);
+  assert.match(state.lastQuestion || "", /maintenant/);
+});
+test("V5 session : un arrêt explicite efface l'état du cas", () => {
+  const state = deriveSessionState([a("## Cas pratique · HRBP\n\nQuelle action ?"), u("Changeons de sujet")]);
+  assert.equal(state.mode, "conversation");
+  assert.equal(state.lastQuestion, null);
+});
+
+// ---- Académie V5.1 : flux complet des études de cas (modèle simulé) ----
+
+test("V5 cas HRBP : cas rédigé, sans appel au modèle", async () => {
+  const { llm, calls } = fakeLLM({});
+  const r = await coach(llm, { messages: [u("Je prépare un entretien de HRBP"), a("Que voulez-vous travailler ?"), u("use case")] });
+  assert.equal(calls.length, 0);
+  assert.ok("reply" in r && /Cas pratique · HR Business Partner/.test(String(r.reply)));
+  assert.equal(r.presentation.view, "case");
+});
+
+test("V5 cas HRBP : la réponse du candidat reçoit un retour rédigé et une question de suite", async () => {
+  const { llm, calls } = fakeLLM({});
+  const caseTurn = a("## Cas pratique · HR Business Partner\n\nLe turnover volontaire a atteint 18 %.\n\nQuelles sont vos premières questions au directeur, et quelles données demanderiez-vous ?");
+  const r = await coach(llm, { messages: [u("Je prépare HRBP"), caseTurn, u("Je demanderais les salaires par niveau, les entretiens de départ et un benchmark du marché externe.")] });
+  assert.equal(calls.length, 0);
+  assert.ok("practiceFeedback" in r && r.practiceFeedback === true);
+  assert.ok("reply" in r && /entretiens de départ/.test(String(r.reply)) && /benchmark|marché externe/.test(String(r.reply)));
+  assert.equal(r.presentation.view, "feedback");
+});
+
+test("V5 cas généré : un autre métier obtient un cas construit par le modèle", async () => {
+  const { llm } = fakeLLM({ role: "Data Analyst", scenario: "Vous êtes Data Analyst dans une enseigne de distribution. Les ventes en ligne ont baissé de 12 % en un trimestre et la direction veut comprendre pourquoi avant le comité de lundi. Vous disposez des données de trafic, de conversion et de panier moyen.", question: "Par quelle analyse commenceriez-vous, et pourquoi ?" });
+  const r = await coach(llm, { messages: [u("Je prépare un entretien de Data Analyst"), a("Que voulez-vous travailler ?"), u("cas pratique")] });
+  assert.ok("reply" in r && /Cas pratique · Data Analyst/.test(String(r.reply)));
+});
+
+test("V5 cas : sans poste connu, le coach demande le poste", async () => {
+  const { llm } = fakeLLM({ role: "", scenario: "", question: "" });
+  const r = await coach(llm, { messages: [u("mise en situation")] });
+  assert.equal(r.kind, "clarify");
+});
+
+test("V5 réponse à un cas : retour du modèle et parcours suggéré si une lacune le justifie", async () => {
+  const { llm } = fakeLLM({ strengths: ["Vous partez des données disponibles."], gaps: ["Votre réponse ne précise pas comment vous structureriez la présentation."], improved: "Je commencerais par segmenter les ventes par canal, puis je présenterais trois hypothèses classées.", nextQuestion: "Quelle hypothèse testeriez-vous en premier ?", skill: "structure", needsTraining: true });
+  const caseTurn = a("## Cas pratique · Data Analyst\n\nLes ventes ont baissé.\n\nPar quelle analyse commenceriez-vous ?");
+  const r = await coach(llm, { messages: [u("Data Analyst"), caseTurn, u("Je regarderais d'abord le trafic et la conversion pour voir où se situe la baisse.")] });
+  assert.ok("suggestedPath" in r && r.suggestedPath && exercises.some((e) => e.id === r.suggestedPath!.exerciseId));
+  assert.equal(r.presentation.view, "feedback");
+});
+
+test("V5 ressources : aucun titre ni PDF inventé", async () => {
+  const { llm, calls } = fakeLLM({});
+  const r = await coach(llm, { messages: [u("Avez-vous des supports pour préparer mon entretien ?")] });
+  assert.equal(calls.length, 0);
+  assert.ok("reply" in r && /Aucun PDF, ouvrage ou lien externe/.test(String(r.reply)));
 });
